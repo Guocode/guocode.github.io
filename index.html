@@ -1,0 +1,807 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>郭子衡 · 自动驾驶感知算法</title>
+<meta name="description" content="郭子衡 — 自动驾驶感知算法工程师。BEV 感知、端到端架构、单目 3D 检测、DMS 视线追踪。6 年算法研发,落地麒麟 / 英伟达 ORIN / 地平线 J5·J6。">
+<meta name="author" content="郭子衡">
+<meta property="og:title" content="郭子衡 · 自动驾驶感知算法">
+<meta property="og:description" content="六年计算机视觉研发:BEV / 端到端 / 3D Vision / DMS,落地麒麟、ORIN、地平线 J5·J6。">
+<meta property="og:type" content="profile">
+<meta name="theme-color" content="#0a0f1e">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230a0f1e'/%3E%3Ccircle cx='32' cy='32' r='15' fill='none' stroke='%2364ffda' stroke-width='3.5'/%3E%3Ccircle cx='32' cy='32' r='4' fill='%23e6f1ff'/%3E%3C/svg%3E">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "ProfilePage",
+  "mainEntity": {
+    "@type": "Person",
+    "name": "郭子衡",
+    "alternateName": "Guo Ziheng",
+    "jobTitle": "自动驾驶感知算法工程师",
+    "email": "mailto:zhguo94@foxmail.com",
+    "telephone": "+86-18506181357",
+    "address": { "@type": "PostalAddress", "addressLocality": "上海", "addressRegion": "嘉定区" },
+    "alumniOf": { "@type": "CollegeOrUniversity", "name": "Southeast University (东南大学)" },
+    "worksFor": { "@type": "Organization", "name": "上汽集团零束科技" },
+    "award": [
+      "ICANN 2019 (CCF-C) 一作",
+      "全国大学生数学建模竞赛 江苏省一等奖",
+      "美国大学生数学建模竞赛 (MCM) 二等奖"
+    ],
+    "knowsAbout": ["BEV 感知","端到端自动驾驶","单目3D目标检测","车道线感知","智能座舱DMS","视线追踪","3D人脸关键点"]
+  }
+}
+</script>
+<style>
+/* ============================================================
+   郭子衡 · 自动驾驶感知 · 个人主页
+   设计语言: 单一冷青强调色 / 编辑部式版式 / 感知系统气质
+   ============================================================ */
+:root{
+  --bg:#0a0f1e;
+  --bg2:#0c1322;
+  --surface:rgba(230,241,255,.03);
+  --surface-2:rgba(230,241,255,.05);
+  --line:rgba(151,180,220,.14);
+  --line-acc:rgba(100,255,218,.38);
+  --ac:#64ffda;
+  --ac-dim:rgba(100,255,218,.55);
+  --fg:#e6f1ff;
+  --mut:#96a5bd;
+  --dim:#5b6b84;
+  --mono:'JetBrains Mono','Cascadia Code',Consolas,'SF Mono',Menlo,monospace;
+  --serif:Georgia,'Times New Roman','STZhongsong','SimSun',serif;
+  --sans:-apple-system,'PingFang SC','HarmonyOS Sans SC','Microsoft YaHei','Segoe UI',Roboto,sans-serif;
+  --r:14px;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth;-webkit-text-size-adjust:100%}
+body{
+  background:linear-gradient(180deg,var(--bg) 0%,var(--bg2) 60%,#0a1224 100%);
+  color:var(--fg);font-family:var(--sans);line-height:1.75;overflow-x:hidden;
+  -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
+}
+::selection{background:rgba(100,255,218,.25);color:var(--fg)}
+::-webkit-scrollbar{width:10px}
+::-webkit-scrollbar-track{background:var(--bg)}
+::-webkit-scrollbar-thumb{background:#22304a;border-radius:5px}
+::-webkit-scrollbar-thumb:hover{background:#2c3d5c}
+:focus-visible{outline:1.5px solid var(--ac);outline-offset:3px;border-radius:4px}
+.skip{position:absolute;left:-999px;top:0;background:var(--ac);color:#04211c;padding:.5rem 1rem;z-index:999;font-weight:700}
+.skip:focus{left:12px;top:12px}
+
+/* ---------- 背景层 ---------- */
+#stars{position:fixed;inset:0;width:100%;height:100%;z-index:0;pointer-events:none}
+.grid-bg{
+  position:fixed;inset:0;z-index:0;pointer-events:none;
+  background:
+    radial-gradient(ellipse 55% 40% at 70% -8%,rgba(100,255,218,.055),transparent 60%),
+    radial-gradient(ellipse 48% 36% at 4% 16%,rgba(125,164,255,.05),transparent 60%),
+    linear-gradient(rgba(151,180,220,.038) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(151,180,220,.038) 1px,transparent 1px);
+  background-size:auto,auto,56px 56px,56px 56px;
+  -webkit-mask-image:linear-gradient(#fff 72%,rgba(255,255,255,.2));
+          mask-image:linear-gradient(#fff 72%,rgba(255,255,255,.2));
+}
+.grain{position:fixed;inset:0;z-index:1;pointer-events:none;opacity:.04;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence baseFrequency='.82' numOctaves='2'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");}
+main,section,footer{position:relative;z-index:2}
+.wrap{max-width:1080px;margin:0 auto;padding:0 28px}
+
+/* ---------- 进度条 & 导航 ---------- */
+#prog{position:fixed;top:0;left:0;height:1.5px;width:0;z-index:55;background:var(--ac);opacity:.75}
+nav{position:fixed;top:0;left:0;right:0;z-index:50;transition:background .35s,box-shadow .35s,border-color .35s;border-bottom:1px solid transparent}
+nav.solid{background:rgba(10,15,30,.82);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);border-bottom-color:var(--line)}
+.navin{max-width:1080px;margin:0 auto;padding:15px 28px;display:flex;align-items:center;gap:1rem}
+.brand{font:700 1rem/1 var(--mono);letter-spacing:.22em;color:var(--fg);text-decoration:none;white-space:nowrap}
+.brand b{color:var(--ac);font-weight:700}
+.brand:hover b{animation:blink 1.2s steps(1) infinite}
+.links{display:flex;gap:.15rem;margin-left:auto}
+.links a{color:var(--mut);text-decoration:none;font:500 .8rem/1.6 var(--mono);letter-spacing:.08em;padding:.4rem .75rem;border-radius:8px;position:relative;transition:color .25s}
+.links a sup{color:var(--ac);font-size:.62rem;margin-right:.2em}
+.links a:hover,.links a.on{color:var(--fg)}
+.links a.on::after{content:'';position:absolute;left:50%;bottom:0;width:14px;height:1px;background:var(--ac);transform:translateX(-50%)}
+.burger{display:none;position:relative;z-index:2;margin-left:auto;background:none;border:1px solid var(--line);border-radius:8px;color:var(--fg);padding:.4rem .55rem;font-size:1rem;line-height:1;cursor:pointer}
+@media(max-width:760px){
+  .burger{display:block}
+  .links{position:fixed;inset:0;background:rgba(10,15,30,.97);-webkit-backdrop-filter:blur(16px);backdrop-filter:blur(16px);
+    flex-direction:column;justify-content:center;align-items:center;gap:1.3rem;
+    clip-path:circle(0% at 88% 5%);transition:clip-path .5s cubic-bezier(.7,0,.2,1)}
+  .links.open{clip-path:circle(140% at 88% 5%)}
+  .links a{font-size:1.15rem}
+}
+
+/* ---------- HERO ---------- */
+.hero{min-height:100svh;display:flex;flex-direction:column;justify-content:center;padding:120px 0 70px;position:relative}
+.kicker{font:500 .78rem/1.6 var(--mono);color:var(--ac-dim);letter-spacing:.3em;text-transform:uppercase}
+.kicker::before{content:'//'}
+.hero::after{content:'';position:absolute;left:28px;bottom:96px;top:140px;width:1px;
+  background:linear-gradient(180deg,transparent,rgba(151,180,220,.22) 20%,rgba(151,180,220,.22) 78%,transparent);pointer-events:none}
+.hero .wrap{position:relative}
+@media(max-width:860px){.hero::after{display:none}}
+.social-rail{position:absolute;left:-40px;bottom:0;top:150px;display:flex;flex-direction:column;align-items:center;gap:1rem}
+@media(max-width:1180px){.social-rail{display:none}}
+.social-rail a{color:var(--dim);font:500 .68rem/1 var(--mono);letter-spacing:.14em;text-decoration:none;writing-mode:vertical-rl;transition:color .25s}
+.social-rail a:hover{color:var(--ac)}
+h1.title{font-size:clamp(2.7rem,6.6vw,4.4rem);font-weight:800;letter-spacing:.015em;line-height:1.18;margin:.9rem 0 .3rem}
+h1.title .nm{color:var(--ac)}
+.focus{font:500 .98rem/1.8 var(--mono);color:var(--mut);min-height:1.8em;margin:.5rem 0 .2rem}
+.focus .lb{color:var(--dim)}
+.focus .fx{color:var(--fg)}
+.focus .fx::after{content:'/';color:var(--ac);margin:0 .45em;opacity:.7}
+.focus .fx:last-of-type::after{content:'';margin:0}
+.hero-sub{color:var(--mut);max-width:41rem;margin-top:1rem;font-size:1rem}
+.hero-sub b{color:var(--fg);font-weight:600}
+.cta{display:flex;gap:.9rem;flex-wrap:wrap;margin-top:2.1rem;align-items:center}
+.btn{display:inline-flex;align-items:center;gap:.55rem;padding:.72rem 1.4rem;border-radius:6px;
+  text-decoration:none;font:600 .88rem/1.5 var(--mono);letter-spacing:.04em;transition:transform .25s,box-shadow .25s,border-color .25s,background .25s}
+.btn.p1{color:#04211c;background:var(--ac);border:1px solid var(--ac);box-shadow:0 10px 28px -12px rgba(100,255,218,.4)}
+.btn.p1:hover{transform:translateY(-2px);box-shadow:0 16px 34px -12px rgba(100,255,218,.5);background:#79ffe1}
+.btn.p1 .arr{transition:transform .25s}
+.btn.p1:hover .arr{transform:translateX(3px)}
+.btn.p2{color:var(--fg);border:1px solid var(--line);background:var(--surface)}
+.btn.p2:hover{border-color:var(--line-acc);transform:translateY(-2px);background:var(--surface-2)}
+.lnk{color:var(--fg);text-decoration:none;font:500 .88rem/1.5 var(--mono);letter-spacing:.03em;padding:.72rem .4rem;border-bottom:1px solid var(--line);transition:color .25s,border-color .25s}
+.lnk:hover{color:var(--ac);border-color:var(--line-acc)}
+.lnk::after{content:'↗';margin-left:.35em;color:var(--ac);font-size:.85em}
+
+/* 状态徽标行 */
+.hud{display:flex;gap:.6rem;flex-wrap:wrap;margin-top:2rem}
+.chip{font:500 .72rem/1 var(--mono);color:var(--mut);border:1px solid var(--line);border-radius:999px;padding:.44rem .85rem;
+  display:inline-flex;align-items:center;gap:.5rem;background:var(--surface);letter-spacing:.1em}
+.chip i{width:6px;height:6px;border-radius:50%;background:var(--ac);font-style:normal;animation:pl 2.6s infinite}
+@keyframes pl{50%{opacity:.3}}
+
+/* 统计: 三项同层级 */
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;margin-top:3.4rem;background:var(--line);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+@media(max-width:640px){.stats{grid-template-columns:1fr}}
+.stat{background:rgba(10,15,30,.72);padding:1.5rem 1.6rem 1.35rem;position:relative;transition:background .3s}
+.stat:hover{background:rgba(100,255,218,.035)}
+.stat .n{font:300 2.9rem/1 var(--serif);font-style:italic;color:var(--fg);letter-spacing:.02em}
+.stat .n::after{content:'';display:inline-block;width:.55em;height:1px;background:var(--ac);vertical-align:.5em;margin-left:.14em}
+.stat .lb{color:var(--dim);font:500 .78rem/1.7 var(--mono);margin-top:.55rem;letter-spacing:.16em}
+
+.scroll-ind{position:absolute;left:50%;bottom:26px;transform:translateX(-50%);color:var(--dim);font:500 .64rem/2.1 var(--mono);letter-spacing:.34em;text-align:center;animation:bob 2.6s ease-in-out infinite}
+.scroll-ind::after{content:'';display:block;width:1px;height:26px;margin:2px auto 0;background:linear-gradient(180deg,var(--dim),transparent)}
+@keyframes bob{50%{transform:translate(-50%,6px)}}
+
+/* ---------- 通用节标 ---------- */
+section{padding:92px 0}
+@media(max-width:760px){section{padding:64px 0}}
+.sec-head{display:flex;align-items:baseline;gap:1.1rem;margin-bottom:2.8rem}
+h2{font-size:clamp(1.45rem,3.2vw,2rem);font-weight:800;letter-spacing:.02em;white-space:nowrap}
+h2 .no{font:italic 400 .95em/1 var(--serif);color:var(--ac);margin-right:.6rem}
+h2 .no::after{content:'.';color:var(--dim)}
+.rule{flex:1;height:1px;min-width:40px;background:var(--line);position:relative}
+.rule::after{content:'';position:absolute;right:0;top:-1.5px;width:34px;height:4px;background:var(--ac);opacity:.55;border-radius:2px}
+h2 .side{font:500 .68rem/1.5 var(--mono);color:var(--dim);letter-spacing:.3em;white-space:nowrap}
+@media(max-width:600px){h2 .side{display:none}}
+
+/* ---------- ABOUT ---------- */
+.about{display:grid;grid-template-columns:1.02fr .98fr;gap:2.8rem;align-items:start}
+@media(max-width:900px){.about{grid-template-columns:1fr}}
+.about>p{color:var(--mut);margin-bottom:1.1rem}
+.about>p::first-letter{}
+.about p b{color:var(--fg);font-weight:600}
+.qnote{border-left:2px solid var(--line-acc);padding:.2rem 0 .2rem 1.1rem;margin:1.4rem 0 1.1rem}
+.qnote .zh{font:600 1.02rem/1.8 var(--sans);color:var(--fg)}
+.qnote .en{font:italic 400 .82rem/1.6 var(--serif);color:var(--dim);letter-spacing:.04em}
+.tagrow{display:flex;flex-wrap:wrap;gap:.5rem;margin-top:1.3rem}
+.tag{font:500 .74rem/1 var(--mono);padding:.5rem .8rem;border-radius:6px;border:1px solid var(--line);color:var(--mut);background:var(--surface);transition:transform .25s,border-color .25s,color .25s;cursor:default;letter-spacing:.05em}
+.tag:hover{transform:translateY(-2px);border-color:var(--line-acc);color:var(--fg)}
+.term{border:1px solid var(--line);border-radius:var(--r);overflow:hidden;background:rgba(8,13,26,.85);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);box-shadow:0 24px 50px -34px rgba(0,0,0,.9)}
+.term-bar{display:flex;align-items:center;gap:.45rem;padding:.6rem .95rem;border-bottom:1px solid var(--line);background:var(--surface)}
+.dot{width:10px;height:10px;border-radius:50%;opacity:.8}
+.d1{background:#ff5f57}.d2{background:#febc2e}.d3{background:#28c840}
+.term-bar .tt{margin-left:auto;min-width:0;font:500 .68rem/1 var(--mono);color:var(--dim);letter-spacing:.06em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.term-body{padding:1.1rem 1.25rem 1.3rem;font:500 .78rem/1.9 var(--mono);min-height:238px;overflow-x:auto;scrollbar-width:thin}
+.term-body .ln{display:block;white-space:nowrap}
+.term-body .yr{color:var(--mut);margin-right:.9em}
+.term-body .tv{display:inline-block;min-width:3.4em;color:var(--ac);letter-spacing:.05em}
+.t-p{color:var(--ac)}.t-c{color:var(--mut)}.t-y{color:var(--dim)}.t-b{color:var(--fg)}
+.caret2{display:inline-block;width:.55em;height:1.05em;vertical-align:-.15em;background:var(--ac);animation:blink 1.1s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
+
+/* ---------- 时间轴: 轨迹倒序 + 学历收尾 ---------- */
+.tl{position:relative;margin:0 auto;max-width:960px;padding:6px 0}
+.tl::before{content:'';position:absolute;left:15px;top:0;bottom:0;width:1px;
+  background:linear-gradient(180deg,var(--ac-dim),rgba(151,180,220,.18) 60%,transparent)}
+.ev{position:relative;padding:0 0 2.2rem 3.2rem}
+.ev::before{content:'';position:absolute;left:10.5px;top:7px;width:9px;height:9px;border-radius:50%;
+  background:var(--bg);border:1.5px solid var(--ac-dim)}
+.ev:first-of-type::before{background:var(--ac);border-color:var(--ac);box-shadow:0 0 0 5px rgba(100,255,218,.1)}
+.ev.now::before{background:var(--ac);border-color:var(--ac);animation:ring 2.6s infinite}
+@keyframes ring{0%{box-shadow:0 0 0 0 rgba(100,255,218,.28)}70%{box-shadow:0 0 0 9px rgba(100,255,218,0)}100%{box-shadow:0 0 0 0 rgba(100,255,218,0)}}
+@media(min-width:861px){
+  .tl::before{left:50%;transform:translateX(-.5px)}
+  .ev{width:50%;padding:0 2.6rem 2.4rem 0;text-align:right}
+  .ev:nth-child(even){margin-left:50%;padding:0 0 2.4rem 2.6rem;text-align:left}
+  .ev::before{left:auto;right:-5px}
+  .ev:nth-child(even)::before{left:-4.5px;right:auto}
+  .ev .card{display:flex;flex-direction:column;align-items:flex-end;text-align:left}
+  .ev:nth-child(even) .card{align-items:flex-start}
+}
+.card{border:1px solid var(--line);border-radius:var(--r);background:var(--surface);padding:1.35rem 1.5rem;transition:transform .3s,border-color .3s,background .3s;backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)}
+.card:hover{transform:translateY(-3px);border-color:var(--line-acc);background:var(--surface-2)}
+.card .when{font:500 .7rem/1.6 var(--mono);color:var(--ac-dim);letter-spacing:.18em;margin-bottom:.55rem;display:flex;gap:.7rem;align-items:center;flex-wrap:wrap}
+.badge-now{background:var(--ac);color:#04211c;font:800 .58rem/1 var(--mono);letter-spacing:.22em;padding:.3rem .55rem;border-radius:4px}
+.card h3{font-size:1.02rem;font-weight:700;letter-spacing:.02em}
+.card .org{color:var(--mut);font:500 .78rem/1.7 var(--mono);margin:.1rem 0 .7rem;letter-spacing:.04em}
+.card ul{list-style:none}
+.card li{color:var(--mut);font-size:.87rem;padding-left:1.15rem;position:relative;margin-bottom:.42rem}
+.card li::before{content:'—';position:absolute;left:0;color:var(--ac-dim);font-weight:400}
+.card li b{color:var(--fg);font-weight:600}
+.techrow{display:flex;flex-wrap:wrap;gap:.38rem;margin-top:.85rem}
+.tc{font:500 .66rem/1 var(--mono);color:var(--dim);border:1px solid var(--line);padding:.32rem .55rem;border-radius:5px;letter-spacing:.06em;transition:color .25s,border-color .25s}
+.card:hover .tc{color:var(--mut);border-color:rgba(151,180,220,.3)}
+
+/* ---------- PROJECTS ---------- */
+.bento{display:grid;grid-template-columns:repeat(2,1fr);gap:18px}
+@media(max-width:680px){.bento{grid-template-columns:1fr}}
+.proj{border:1px solid var(--line);border-radius:var(--r);background:var(--surface);padding:1.6rem 1.6rem 1.45rem;position:relative;overflow:hidden;
+  transition:transform .35s,border-color .35s,box-shadow .35s;will-change:transform}
+.proj::before{content:'';position:absolute;inset:0;border-radius:inherit;padding:1px;opacity:0;transition:opacity .45s;
+  background:linear-gradient(var(--angle,120deg),transparent 32%,rgba(100,255,218,.5) 50%,transparent 68%);
+  -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude}
+.proj:hover{transform:translateY(-4px);box-shadow:0 26px 52px -30px rgba(0,0,0,.9)}
+.proj:hover::before{opacity:1}
+.proj .num{position:absolute;top:1rem;right:1.35rem;font:italic 400 2.9rem/1 var(--serif);color:rgba(230,241,255,.07);letter-spacing:-.02em;user-select:none;transition:color .35s}
+.proj:hover .num{color:rgba(100,255,218,.16)}
+.proj .ft{font:500 .66rem/1.5 var(--mono);color:var(--ac-dim);letter-spacing:.26em;display:block;margin-bottom:.7rem}
+.proj h3{font-size:1.08rem;font-weight:800;margin-bottom:.5rem;letter-spacing:.02em}
+.proj p{color:var(--mut);font-size:.87rem;margin-bottom:1.1rem}
+.proj p b{color:var(--fg);font-weight:600}
+.metric{display:flex;justify-content:space-between;align-items:baseline;font:500 .72rem/1.4 var(--mono);color:var(--dim);letter-spacing:.08em;border-top:1px solid var(--line);padding-top:.85rem}
+.metric b{color:var(--ac);font-weight:600;letter-spacing:.12em}
+
+/* ---------- HONORS ---------- */
+.awards{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+@media(max-width:820px){.awards{grid-template-columns:1fr}}
+.aw{border:1px solid var(--line);border-radius:var(--r);background:var(--surface);padding:1.4rem 1.5rem;position:relative;transition:transform .3s,border-color .3s}
+.aw:hover{transform:translateY(-3px);border-color:var(--line-acc)}
+.aw .kick{font:500 .64rem/1.6 var(--mono);color:var(--dim);letter-spacing:.26em;margin-bottom:.65rem}
+.aw .kick i{font-style:italic;color:var(--ac);font-family:var(--serif);letter-spacing:.05em;margin-right:.4em}
+.aw .t{font-weight:700;font-size:.95rem;line-height:1.5}
+.aw .s{color:var(--mut);font-size:.8rem;margin-top:.3rem;line-height:1.7}
+.edu-strip{margin-top:18px;border:1px dashed rgba(151,180,220,.28);border-radius:var(--r);padding:1.15rem 1.5rem;display:flex;gap:1.4rem;flex-wrap:wrap;align-items:baseline;color:var(--mut);font-size:.86rem}
+.edu-strip .ttl{font:600 .7rem/1.8 var(--mono);color:var(--ac-dim);letter-spacing:.24em}
+.edu-strip b{color:var(--fg);font-weight:600}
+.edu-strip .sep{color:var(--dim)}
+
+/* ---------- SKILLS ---------- */
+.skills{display:grid;grid-template-columns:repeat(2,1fr);gap:18px}
+@media(max-width:680px){.skills{grid-template-columns:1fr}}
+.skillgrp{border:1px solid var(--line);border-radius:var(--r);background:var(--surface);padding:1.4rem 1.5rem;transition:border-color .3s,transform .3s}
+.skillgrp:hover{border-color:var(--line-acc);transform:translateY(-3px)}
+.skillgrp h3{font:600 .72rem/1.5 var(--mono);letter-spacing:.28em;color:var(--dim);margin-bottom:1rem;display:flex;align-items:center;gap:.7rem}
+.skillgrp h3::after{content:'';flex:1;height:1px;background:var(--line)}
+.skillgrp .tagrow{margin-top:0}
+.skillgrp .tag{font-size:.76rem;padding:.5rem .85rem}
+
+/* ---------- CONTACT ---------- */
+.contact{text-align:center;padding-bottom:120px}
+.contact .kicker{color:var(--ac-dim)}
+.contact .big{font-size:clamp(1.7rem,4.6vw,2.9rem);font-weight:800;letter-spacing:.02em;line-height:1.3;margin:1rem 0 1.1rem}
+.contact .big em{font:italic 400 1.05em var(--serif);color:var(--ac)}
+.contact p{color:var(--mut);max-width:33rem;margin:0 auto 2.2rem;font-size:.95rem}
+.cbtns{display:flex;gap:.9rem;justify-content:center;flex-wrap:wrap}
+.loc{color:var(--dim);font:500 .78rem/1.6 var(--mono);letter-spacing:.14em;margin-top:1.6rem}
+.watermark{font:italic 400 clamp(3rem,11vw,8rem)/1.1 var(--serif);letter-spacing:.06em;color:transparent;-webkit-text-stroke:1px rgba(151,180,220,.14);user-select:none;margin-top:3rem;white-space:nowrap}
+
+/* ---------- footer ---------- */
+footer{border-top:1px solid var(--line);padding:2rem 0 2.6rem;color:var(--dim);font:500 .78rem/1.8 var(--mono);letter-spacing:.05em}
+.frow{display:flex;gap:1rem;flex-wrap:wrap;justify-content:space-between;align-items:center}
+.frow .motto i{color:var(--ac);font-style:normal}
+#totop{position:fixed;right:22px;bottom:22px;width:44px;height:44px;border-radius:10px;border:1px solid var(--line);
+  background:rgba(10,15,30,.85);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);color:var(--mut);font-size:1.05rem;cursor:pointer;
+  opacity:0;visibility:hidden;transition:all .35s;z-index:48;display:grid;place-items:center}
+#totop.show{opacity:1;visibility:visible}
+#totop:hover{color:var(--ac);border-color:var(--line-acc);transform:translateY(-3px)}
+
+/* ---------- 入场动画 ---------- */
+.reveal{opacity:0;transform:translateY(22px);transition:opacity .8s cubic-bezier(.2,.7,.2,1),transform .8s cubic-bezier(.2,.7,.2,1)}
+.reveal.in{opacity:1;transform:none}
+@media(prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.001s!important;animation-iteration-count:1!important;transition-duration:.001s!important}
+  #stars{display:none}
+  .reveal{opacity:1;transform:none}
+}
+</style>
+<noscript><style>.reveal{opacity:1;transform:none}.caret2{display:none}</style></noscript>
+</head>
+<body>
+<a class="skip" href="#main">跳到主要内容</a>
+<div id="prog" role="presentation"></div>
+<div class="grid-bg" aria-hidden="true"></div>
+<canvas id="stars" aria-hidden="true"></canvas>
+<div class="grain" aria-hidden="true"></div>
+
+<nav id="nav" aria-label="主导航">
+  <div class="navin">
+    <a class="brand" href="#top">郭子衡<b>.</b></a>
+    <button class="burger" id="burger" aria-expanded="false" aria-controls="menu" aria-label="打开菜单">☰</button>
+    <div class="links" id="menu">
+      <a href="#about"><sup>01</sup>关于</a>
+      <a href="#exp"><sup>02</sup>经历</a>
+      <a href="#work"><sup>03</sup>代表工作</a>
+      <a href="#honors"><sup>04</sup>荣誉</a>
+      <a href="#skills"><sup>05</sup>技能</a>
+      <a href="#contact"><sup>06</sup>联系</a>
+    </div>
+  </div>
+</nav>
+
+<main id="main">
+<!-- ==================== HERO ==================== -->
+<section class="hero" id="top">
+  <aside class="social-rail" aria-hidden="true">
+    <a href="mailto:zhguo94@foxmail.com">EMAIL</a>
+    <a href="tel:+8618506181357">TEL</a>
+    <span style="flex:1;width:1px;background:var(--line)"></span>
+  </aside>
+  <div class="wrap">
+    <div class="kicker">autonomous driving · perception · shanghai</div>
+    <h1 class="title">你好, 我是<span class="nm">郭子衡</span></h1>
+    <div class="focus"><span class="lb">深耕于</span><span class="fx">BEV 感知与车道线要素</span><span class="fx">一段式端到端</span><span class="fx">单目 3D 检测</span><span class="fx">视线追踪与数据闭环</span></div>
+    <p class="hero-sub">六年计算机视觉与深度学习研发: 从<b>智能座舱</b>的每一道视线, 到<b>BEV 感知</b>与<b>一段式端到端</b>的每一次跃迁。
+      算法先后搭载于<b>麒麟、英伟达 ORIN、地平线 J5 / J6</b> 三代平台, 并随量产车型交付给真实的道路与乘员。</p>
+    <div class="cta">
+      <a class="btn p1" href="mailto:zhguo94@foxmail.com">邮件联系<span class="arr">→</span></a>
+      <a class="btn p2" href="#work">查看代表工作</a>
+      <a class="lnk" href="#honors">论文与获奖</a>
+    </div>
+    <div class="hud">
+      <span class="chip"><i></i>在职 · 上汽零束智驾</span>
+      <span class="chip">上海 · 嘉定</span>
+    </div>
+    <div class="stats" role="list">
+      <div class="stat reveal" role="listitem"><div class="n"><span data-n="6">0</span>+</div><div class="lb">YEARS · 感知算法研发</div></div>
+      <div class="stat reveal" role="listitem"><div class="n"><span data-n="3">0</span></div><div class="lb">PLATFORMS · 端侧平台量产</div></div>
+      <div class="stat reveal" role="listitem"><div class="n"><span data-n="3">0</span></div><div class="lb">MODELS · 量产车型搭载</div></div>
+    </div>
+  </div>
+  <div class="scroll-ind">SCROLL</div>
+</section>
+
+<!-- ==================== ABOUT ==================== -->
+<section id="about">
+  <div class="wrap">
+    <div class="sec-head"><h2><span class="no">01</span>关于<span class="side">ABOUT</span></h2><div class="rule"></div></div>
+    <div class="about">
+      <div class="reveal">
+        <p>本硕皆于<b>东南大学</b>(信息工程 / 软件工程), 六年只回答一个问题: <b>机器如何更准确地看见世界?</b>
+          先后在智能座舱与高阶智驾两大战场——把 <b>DMS 视线追踪</b>做到精度 4° 以内, 把<b>单目 3D</b> 前向感知推进到 200 米以外,
+          让<b>车道线感知</b>在地平线平台上跑进实时节拍, 再亲手搭起<b>一段式端到端</b>的第一版骨架。</p>
+        <p>信奉严谨与变通: 先看清物理与数据的约束, 再大胆假设、小心求证, 针对实际需求给出能落地的特定解。</p>
+        <blockquote class="qnote">
+          <div class="zh">感知是自动化的前提, 而约束是创新的起点。</div>
+          <div class="en">Perception precedes autonomy; constraint breeds invention.</div>
+        </blockquote>
+        <div class="tagrow">
+          <span class="tag">BEV 感知</span><span class="tag">端到端自驾</span><span class="tag">单目 3D 检测</span>
+          <span class="tag">DMS / 视线追踪</span><span class="tag">3D 人脸重建</span><span class="tag">端侧部署优化</span>
+        </div>
+      </div>
+      <div class="term reveal" aria-label="终端: 职业履历演算">
+        <div class="term-bar"><span class="dot d1"></span><span class="dot d2"></span><span class="dot d3"></span><span class="tt">guoziheng@percept: ~/career</span></div>
+        <div class="term-body" id="term"><noscript><span class="ln"><span class="t-p">$</span> <span class="t-c">git log career --pretty=oneline</span></span><span class="ln"><span class="yr">2024</span><span class="tv">head</span><span class="t-c">一段式端到端 · 地平线 J5/J6</span></span><span class="ln"><span class="yr">2022</span><span class="tv">sync</span><span class="t-c">飞凡 ORIN · BEV / Mono3D 量产</span></span><span class="ln"><span class="yr">2019</span><span class="tv">feat</span><span class="t-c">DMS 视线 &lt;4° · 麒麟上车</span></span><span class="ln"><span class="yr">2018</span><span class="tv">init</span><span class="t-c">TCN 手势 · 华为 2012 实验室</span></span><span class="ln"><span class="t-p">$</span> <span class="t-c">uptime</span> <span class="t-y">───</span> <span class="t-b">6 yrs</span> <span class="t-c">仍在训练, 收敛中 ▍</span></span></noscript></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== EXPERIENCE ==================== -->
+<section id="exp">
+  <div class="wrap">
+    <div class="sec-head"><h2><span class="no">02</span>经历<span class="side">TRAJECTORY · 倒序</span></h2><div class="rule"></div></div>
+    <div class="tl">
+
+      <article class="ev now reveal">
+        <div class="card">
+          <div class="when">2024.02 — 至今 <span class="badge-now">CURRENT</span></div>
+          <h3>算法工程师 · 智驾计算平台</h3>
+          <div class="org">上汽集团零束科技</div>
+          <ul>
+            <li><b>BEV 实例化车道线感知:</b> 基于 MapTRv2, 参考 MapQR 改进 query 实例表示; 针对地平线平台做结构与算子适配, 于 <b>J5 / J6</b> 达成车端<b>实时运行</b>, 直接输出实例化车道线; 数据侧配套自研自动化标注流水线。</li>
+            <li><b>一段式端到端:</b> 主导架构设计与关键技术验证。深入调研 openpilot 与端到端文献后, 采用 para-Drive 并行式思想统一<b>目标检测 / 车道线 / 端到端规划</b>多任务训练框架; 设计导航路径与感知自动化标注等数据要素闭环。</li>
+          </ul>
+          <div class="techrow"><span class="tc">MAPTRV2</span><span class="tc">PARA-DRIVE</span><span class="tc">HORIZON J5/J6</span><span class="tc">E2E</span></div>
+        </div>
+      </article>
+
+      <article class="ev reveal">
+        <div class="card">
+          <div class="when">2022.04 — 2024.02</div>
+          <h3>算法工程师 · 高阶智驾感知</h3>
+          <div class="org">上汽集团研发总院 · 飞凡智能化事业部</div>
+          <ul>
+            <li><b>单目 3D 目标检测:</b> 改进 DD3D——骨干升级为大规模深度预训练 Omni Backbone, 2D 检测头换成 YOLOX, 改进样本分配策略提升小目标检出; 设计<b>目标级 loss 掩码</b>利用仅 2D 标注的样本, 降低标注成本; 部署采用双 batch 同时推理 resize 与中心 crop 图, 前向感知达 <b>200m+</b>。</li>
+            <li><b>BEV 动态目标检测:</b> 基于 DETR3D 并加入前向 F30 相机扩展感知范围; 对激光雷达标注范围外的目标, 将未匹配 3D query 投影至图像与 2D 标注做二次匈牙利匹配, 以 2D 投影框 IOU 损失进行弱监督, 提升远距正样本召回。</li>
+            <li><b>二阶段识别:</b> 车灯 / 车门 / 车辆关键点, 基于挖掘模型平衡正负样本, 落地<b>飞凡 R7 / F7</b>。</li>
+          </ul>
+          <div class="techrow"><span class="tc">DD3D</span><span class="tc">DETR3D</span><span class="tc">MMDET3D</span><span class="tc">MMCLS</span><span class="tc">NVIDIA ORIN</span></div>
+        </div>
+      </article>
+
+      <article class="ev reveal">
+        <div class="card">
+          <div class="when">2019.09 — 2022.03</div>
+          <h3>算法工程师 · 智能座舱 DMS / CMS</h3>
+          <div class="org">华为技术有限公司 · 智能座舱产品部</div>
+          <ul>
+            <li><b>视线追踪:</b> 从 0 到 1 搭建数据链路——双目相机解算眼部 3D 坐标, 激光标定屏体, 引导受试者注视提示点获取视线向量真值; 半自动标定采集 + 清洗, 沉淀 <b>100+ 人规模</b>高精度红外数据集。设计人脸与双目的<b>三输入共享骨干</b>网络, 分别回归双眼视线角, 最终精度 <b>&lt;4°</b>。</li>
+            <li><b>头部姿态:</b> 以<b>旋转矩阵回归</b>替代常见欧拉角回归, 解决大姿态下表示不连续, 实际驾驶舱监控范围达 <b>±90°</b>; 另预研人头检测与 360° 头部姿态。</li>
+            <li><b>3D 人脸关键点:</b> 300W-LP 训练 2D 基础模型做预标注, 供应商微调后以 3DMM 投影约束学习深度, 最终以 <b>MobileNetV2</b> 直接回归 68 点三维关键点(L1 损失)。</li>
+            <li>以上算法应用于<b>北汽极狐阿尔法 S</b> 等车型, 亮相北京 / 上海车展。</li>
+          </ul>
+          <div class="techrow"><span class="tc">KIRIN</span><span class="tc">3DMM</span><span class="tc">MOBILENETV2</span><span class="tc">OPENCV</span><span class="tc">C++</span></div>
+        </div>
+      </article>
+
+      <article class="ev reveal">
+        <div class="card">
+          <div class="when">2018.08 — 2019.02</div>
+          <h3>实习生 · 2012 实验室</h3>
+          <div class="org">华为技术有限公司</div>
+          <ul>
+            <li>视频理解研究: 基于 <b>TCN</b> 的端到端时序动作识别手势算法, 在麒麟平台完成 DEMO; 成果发表于 <b>ICANN 2019</b>(一作)。</li>
+          </ul>
+          <div class="techrow"><span class="tc">TCN</span><span class="tc">TEMPORAL ACTION</span></div>
+        </div>
+      </article>
+
+      <!-- 学历统一收口于「荣誉与教育」区块, 时间轴只呈现职业轨迹 -->
+    </div>
+  </div>
+</section>
+
+<!-- ==================== PROJECTS ==================== -->
+<section id="work">
+  <div class="wrap">
+    <div class="sec-head"><h2><span class="no">03</span>代表工作<span class="side">SELECTED WORK</span></h2><div class="rule"></div></div>
+    <div class="bento">
+
+      <div class="proj reveal" data-tilt>
+        <div class="num">01</div>
+        <span class="ft">FEATURED — BEV LANE</span>
+        <h3>实例化车道线感知</h3>
+        <p>以 <b>MapTRv2</b> 为基, 借鉴 <b>MapQR</b> 思路重构 query 的实例化表示——训练即可视化, 端侧可直接输出车道线实例。
+          围绕地平线平台完成网络结构与算子适配, 在 <b>J5 / J6</b> 上实时运行; 上游接自研<b>自动化标注流水线</b>, 数据迭代形成飞轮。</p>
+        <div class="metric"><span>车端实时性</span><b>J5 / J6 · REAL-TIME</b></div>
+      </div>
+
+      <div class="proj reveal" data-tilt>
+        <div class="num">02</div>
+        <span class="ft">FEATURED — END-TO-END</span>
+        <h3>一段式端到端感知模型</h3>
+        <p>深潜 openpilot 与端到端研究文献, 以 <b>para-Drive 并行式</b>思路设计一段式架构: <b>目标检测 + 车道线 + 规划</b>共享同一可微管线;
+          配套设计<b>导航路径、感知自动化标注</b>等数据要素, 搭建多任务统一训练框架, 完成关键技术验证。</p>
+        <div class="metric"><span>架构完成度</span><b>E2E · MULTI-TASK</b></div>
+      </div>
+
+      <div class="proj reveal" data-tilt>
+        <div class="num">03</div>
+        <span class="ft">MONOCULAR 3D</span>
+        <h3>远距单目 3D 检测</h3>
+        <p>重塑 DD3D: 大规模深度预训练骨干 + <b>YOLOX</b> 检测头 + 改进的样本分配策略; 目标级 <b>loss 掩码</b>消化仅 2D 标注的远距样本, 降低标注成本;
+          双 batch 并行推理原图与中心裁剪视图。</p>
+        <div class="metric"><span>前向感知</span><b>200m+</b></div>
+      </div>
+
+      <div class="proj reveal" data-tilt>
+        <div class="num">04</div>
+        <span class="ft">BEV / DETR3D</span>
+        <h3>BEV 动态目标检测</h3>
+        <p>引入<b>前向 F30 相机</b>扩展 BEV 感知范围; 激光雷达标注之外的远处目标, 通过 3D→2D 投影与 2D 标注做第二次匈牙利匹配, 以投影框 IOU 损失进行弱监督——让远处的目标也拿得到回响。</p>
+        <div class="metric"><span>BEV 覆盖</span><b>F30 +Beyond Lidar</b></div>
+      </div>
+
+      <div class="proj reveal" data-tilt>
+        <div class="num">05</div>
+        <span class="ft">GAZE ESTIMATION</span>
+        <h3>视线追踪 · 精度 &lt; 4°</h3>
+        <p>双目视觉求解眼球 3D 坐标, 结合激光屏标定与半自动数据清洗, 沉淀 <b>100+ 人</b>高质量红外数据集;
+          模型侧设计<b>人脸 + 双眼的三输入共享骨干</b>结构, 端到端输出双目视线角。</p>
+        <div class="metric"><span>视线误差</span><b>&lt; 4°</b></div>
+      </div>
+
+      <div class="proj reveal" data-tilt>
+        <div class="num">06</div>
+        <span class="ft">HEAD POSE / 3D FACE</span>
+        <h3>头部姿态 · 3D 人脸关键点</h3>
+        <p>以<b>旋转矩阵回归</b>取代直接回归欧拉角, 解决大姿态下的表示不连续, DMS 监控覆盖扩至 <b>±90°</b>;
+          另以 3DMM 投影拟合获取深度监督, <b>MobileNetV2</b> 直接回归 68 点人脸三维关键点。</p>
+        <div class="metric"><span>头姿覆盖</span><b>±90° · 3D-68PTS</b></div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ==================== HONORS ==================== -->
+<section id="honors">
+  <div class="wrap">
+    <div class="sec-head"><h2><span class="no">04</span>荣誉与教育<span class="side">HONORS &amp; EDUCATION</span></h2><div class="rule"></div></div>
+    <div class="awards">
+      <div class="aw reveal">
+        <div class="kick"><i>№01</i>PUBLICATION</div>
+        <div class="t">An Efficient 3D-NAS Method for Video-based Gesture Recognition</div>
+        <div class="s">第一作者 · CCF-C 类会议 · 时序动作识别 × 神经架构搜索</div>
+      </div>
+      <div class="aw reveal">
+        <div class="kick"><i>№02</i>COMPETITION</div>
+        <div class="t">全国大学生数学建模竞赛 · 一等奖</div>
+        <div class="s">江苏省赛区 · 本科期间</div>
+      </div>
+      <div class="aw reveal">
+        <div class="kick"><i>№03</i>COMPETITION</div>
+        <div class="t">美国大学生数学建模竞赛(MCM) · 二等奖</div>
+        <div class="s">Meritorious Winner · 与队友跨夜连续作战</div>
+      </div>
+    </div>
+    <div class="edu-strip reveal">
+      <span class="ttl">EDUCATION</span>
+      <span><b>东南大学</b> · 硕士 · 软件工程(2017 — 2019)</span>
+      <span class="sep">/</span>
+      <span><b>东南大学</b> · 本科 · 信息工程(2013 — 2017)</span>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== SKILLS ==================== -->
+<section id="skills">
+  <div class="wrap">
+    <div class="sec-head"><h2><span class="no">05</span>技术栈<span class="side">TOOLBOX</span></h2><div class="rule"></div></div>
+    <div class="skills">
+      <div class="skillgrp reveal"><h3>语言</h3>
+        <div class="tagrow"><span class="tag">Python</span><span class="tag">C++</span></div></div>
+      <div class="skillgrp reveal"><h3>框架与库</h3>
+        <div class="tagrow"><span class="tag">PyTorch</span><span class="tag">TensorFlow</span><span class="tag">MMDetection</span><span class="tag">mmclassification</span><span class="tag">OpenCV</span><span class="tag">ROS</span></div></div>
+      <div class="skillgrp reveal"><h3>部署与硬件平台</h3>
+        <div class="tagrow"><span class="tag">地平线 J5 / J6</span><span class="tag">NVIDIA ORIN</span><span class="tag">华为麒麟</span></div></div>
+      <div class="skillgrp reveal"><h3>日常与其他</h3>
+        <div class="tagrow"><span class="tag">PyCharm</span><span class="tag">CLion</span><span class="tag">CET-6</span></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== CONTACT ==================== -->
+<section id="contact" class="contact">
+  <div class="wrap">
+    <div class="kicker">next data point</div>
+    <div class="big">感知的路很长, 期待<em>同行者</em>。</div>
+    <p>无论是 BEV、端到端这类课题交流, 还是一次具体的合作机会, 都欢迎通过下面任一信道来信。</p>
+    <div class="cbtns">
+      <a class="btn p1" href="mailto:zhguo94@foxmail.com">✉️ zhguo94@foxmail.com</a>
+      <a class="btn p2" href="tel:+8618506181357">📱 +86 185 0618 1357</a>
+      <span class="btn p2" title="上海市嘉定区">📍 上海 · 嘉定</span>
+    </div>
+    <div class="loc">LOCATED 31.37°N 121.27°E — JIADING, SHANGHAI</div>
+    <div class="watermark" aria-hidden="true">Perceive</div>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap frow">
+    <div>© 2026 郭子衡 · <span class="motto">perception, <i>engineered seriously</i>.</span></div>
+    <div>Handcrafted · 零框架依赖</div>
+  </div>
+</footer>
+<button id="totop" aria-label="回到顶部">↑</button>
+
+<script>
+(function(){
+'use strict';
+var RM = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/* ---------- 星尘背景: 低密度连点 + 指针呼应 + 偶发流星(减弱) ---------- */
+var cv=document.getElementById('stars'),cx=cv.getContext('2d');
+var W,H,pts=[],mouse={x:-9e3,y:-9e3},raf=null;
+function sizeIt(){
+  var d=Math.min(window.devicePixelRatio||1,1.6);
+  W=innerWidth;H=innerHeight;
+  cv.width=W*d;cv.height=H*d;cv.style.width=W+'px';cv.style.height=H+'px';
+  cx.setTransform(d,0,0,d,0,0);
+}
+function seed(){
+  var n=Math.min(90,Math.round(W*H/17000));  /* 稀一点, 克制 */
+  pts=[];
+  for(var i=0;i<n;i++){
+    pts.push({
+      x:Math.random()*W, y:Math.random()*H,
+      vx:(Math.random()-.5)*.22, vy:(Math.random()-.5)*.22,   /* 缓速漂移 */
+      far:Math.random()<.3,
+      r:Math.random()<.3?(1.3+Math.random()):(0.5+Math.random()*.9),
+      ph:Math.random()*6.283
+    });
+  }
+}
+addEventListener('resize',function(){sizeIt();seed();},{passive:true});
+addEventListener('mousemove',function(e){mouse.x=e.clientX;mouse.y=e.clientY;},{passive:true});
+addEventListener('mouseout',function(){mouse.x=-9e3;mouse.y=-9e3;},{passive:true});
+var LINK=128,MR=150,lastMeteor=0,meteor=null;
+function draw(now){
+  cx.clearRect(0,0,W,H);
+  var a=now/1000,i,j,p,A,B,dx,dy,d2,o,g,s;
+  /* 流星: 低频低调 */
+  if(!meteor||now-lastMeteor>9000+Math.random()*7000){
+    lastMeteor=now;
+    meteor={x:W*.15+Math.random()*W*.7,y:-30,vx:1.6+Math.random()*1.2,vy:1.1+Math.random()*.9,life:1};
+  }
+  if(meteor){
+    s=meteor;s.x+=s.vx*2;s.y+=s.vy*2;s.life-=.012;
+    if(s.life<=0||s.y>H+50){meteor=null;}
+    else{
+      g=cx.createLinearGradient(s.x,s.y,s.x-s.vx*30,s.y-s.vy*30);
+      g.addColorStop(0,'rgba(160,235,255,'+(.4*s.life).toFixed(3)+')');
+      g.addColorStop(1,'rgba(160,235,255,0)');
+      cx.strokeStyle=g;cx.lineWidth=1.1;cx.beginPath();cx.moveTo(s.x,s.y);
+      cx.lineTo(s.x-s.vx*30,s.y-s.vy*30);cx.stroke();
+    }
+  }
+  /* 粒子本体: 低透明度呼吸 */
+  for(i=0;i<pts.length;i++){
+    p=pts[i];p.x+=p.vx;p.y+=p.vy;
+    if(p.x<-10)p.x=W+10;if(p.x>W+10)p.x=-10;if(p.y<-10)p.y=H+10;if(p.y>H+10)p.y=-10;
+    dx=p.x-mouse.x;dy=p.y-mouse.y;d2=dx*dx+dy*dy;
+    if(d2<MR*MR){var dd=Math.sqrt(d2)||1,f=(1-dd/MR)*.18;p.x+=dx/dd*f*1.4;p.y+=dy/dd*f*1.4;} /* 轻微避让 */
+    var tw=.55+.45*Math.sin(a*.9+p.ph);
+    cx.beginPath();cx.arc(p.x,p.y,p.r,0,6.283);
+    cx.fillStyle=p.far?('rgba(150,225,210,'+(.14+.16*tw).toFixed(3)+')'):('rgba(190,205,230,'+(.2+.22*tw).toFixed(3)+')');
+    cx.fill();
+  }
+  /* 近邻连线: 很淡 */
+  for(i=0;i<pts.length;i++)for(j=i+1;j<pts.length;j++){
+    A=pts[i];B=pts[j];dx=A.x-B.x;dy=A.y-B.y;d2=dx*dx+dy*dy;
+    if(d2<LINK*LINK){
+      o=(1-Math.sqrt(d2)/LINK)*.13;
+      if(o>.01){cx.strokeStyle='rgba(140,190,200,'+o.toFixed(3)+')';cx.lineWidth=.6;
+        cx.beginPath();cx.moveTo(A.x,A.y);cx.lineTo(B.x,B.y);cx.stroke();}
+    }
+  }
+  /* 指针涟漪: 只画最近 3 颗, 保持克制 */
+  if(!(mouse.x<-9e2)){
+    var cnt=0;
+    pts.sort(function(a,b){return (Math.abs(a.x-mouse.x)+Math.abs(a.y-mouse.y))-(Math.abs(b.x-mouse.x)+Math.abs(b.y-mouse.y));});
+    for(i=0;i<Math.min(3,pts.length);i++){
+      p=pts[i];dx=p.x-mouse.x;dy=p.y-mouse.y;d2=dx*dx+dy*dy;
+      if(d2<MR*MR){o=(1-Math.sqrt(d2)/MR)*.3;
+        cx.strokeStyle='rgba(100,255,218,'+o.toFixed(3)+')';cx.lineWidth=.7;
+        cx.beginPath();cx.moveTo(mouse.x,mouse.y);cx.lineTo(p.x,p.y);cx.stroke();}
+      if(++cnt>=3)break;
+    }
+  }
+  if(RM){return;}
+  raf=requestAnimationFrame(draw);
+}
+document.addEventListener('visibilitychange',function(){
+  if(document.hidden){cancelAnimationFrame(raf);}
+  else if(!RM){raf=requestAnimationFrame(draw);}
+});
+sizeIt();seed();raf=requestAnimationFrame(draw);
+
+/* ---------- 滚动体系 ---------- */
+var prog=document.getElementById('prog'),nav=document.getElementById('nav'),totop=document.getElementById('totop');
+addEventListener('scroll',function(){
+  var sc=window.scrollY||0,max=document.documentElement.scrollHeight-innerHeight;
+  prog.style.width=(Math.max(0,sc)/Math.max(1,max)*100)+'%';
+  nav.classList.toggle('solid',sc>40);
+  totop.classList.toggle('show',sc>620);
+},{passive:true});
+totop.addEventListener('click',function(){scrollTo({top:0,behavior:RM?'auto':'smooth'});});
+
+var counted=RM;
+if('IntersectionObserver' in window){
+  var io=new IntersectionObserver(function(es){
+    es.forEach(function(e){
+      if(!e.isIntersecting)return;
+      var el=e.target;
+      el.classList.add('in');
+      if(!counted){
+        Array.prototype.forEach.call(el.querySelectorAll('[data-n]'),function(node){
+          if(node.dataset.done)return;node.dataset.done=1;
+          var N=+node.dataset.n,st=performance.now(),D=1400;
+          (function cs(t){
+            var k=Math.min(1,(t-st)/D),ease=1-Math.pow(1-k,3);
+            node.textContent=String(Math.round(N*ease)).padStart(2,'0');
+            if(k<1)requestAnimationFrame(cs);
+          })(st);
+        });
+      }
+    });
+  },{threshold:.2});
+  Array.prototype.forEach.call(document.querySelectorAll('.reveal'),function(el,i){
+    el.style.transitionDelay=(i%4)*70+'ms';
+    if(RM){el.classList.add('in');}
+    io.observe(el);
+  });
+
+  var lnks=Array.prototype.slice.call(document.querySelectorAll('#menu a'));
+  var spy=new IntersectionObserver(function(es){
+    es.forEach(function(e){
+      if(e.isIntersecting){
+        var id=e.target.id;
+        lnks.forEach(function(l){l.classList.toggle('on',l.getAttribute('href')==='#'+id);});
+      }
+    });
+  },{rootMargin:'-45% 0px -50% 0px'});
+  Array.prototype.forEach.call(document.querySelectorAll('section[id]'),function(s){spy.observe(s);});
+}else{
+  Array.prototype.forEach.call(document.querySelectorAll('.reveal'),function(el){el.classList.add('in');});
+  if(!counted){Array.prototype.forEach.call(document.querySelectorAll('[data-n]'),function(n){n.textContent=String(n.dataset.n).padStart(2,'0');});}
+}
+
+/* ---------- 移动端菜单 ---------- */
+var burger=document.getElementById('burger'),menu=document.getElementById('menu');
+burger.addEventListener('click',function(){
+  var o=menu.classList.toggle('open');
+  burger.setAttribute('aria-expanded',o);
+  burger.textContent=o?'✕':'☰';
+});
+menu.addEventListener('click',function(ev){
+  if(ev.target&&ev.target.closest&&ev.target.closest('a')){
+    menu.classList.remove('open');burger.textContent='☰';burger.setAttribute('aria-expanded','false');
+  }
+});
+
+/* ---------- 终端履历: 逐行浮现 + 末行挂光标(无 JS 时走 noscript 静态) ---------- */
+var tb=document.getElementById('term');
+var LOG=[
+  ['<span class="t-p">$</span> <span class="t-c">whoami</span>',750],
+  ['<span class="t-b">郭子衡</span> <span class="t-c">· 自动驾驶感知 · 上海</span>',600],
+  ['<span class="t-p">$</span> <span class="t-c">git log career --pretty=oneline</span>',850],
+  ['<span class="yr">2024</span><span class="tv">head</span><span class="t-c">一段式端到端 · 地平线 J5/J6</span>',460],
+  ['<span class="yr">2022</span><span class="tv">sync</span><span class="t-c">飞凡 ORIN · BEV / Mono3D 量产</span>',460],
+  ['<span class="yr">2019</span><span class="tv">feat</span><span class="t-c">DMS 视线追踪 &lt;4° · 麒麟上车</span>',460],
+  ['<span class="yr">2018</span><span class="tv">init</span><span class="t-c">TCN 手势识别 · 华为 2012 实验室</span>',460],
+  ['<span class="t-p">$</span> <span class="t-c">uptime</span> <span class="t-y">───</span> <span class="t-b">6 yrs</span> <span class="t-c">仍在训练, 收敛中</span>',420]
+];
+if(tb){
+  var mountCaret=function(){
+    var lns=tb.querySelectorAll('.ln');
+    if(!lns.length)return;
+    var c=document.createElement('span');
+    c.className='caret2';c.style.marginLeft='.55em';
+    lns[lns.length-1].appendChild(c);
+  };
+  if(!RM){
+    var ti=0;
+    (function nextLine(){
+      if(ti>=LOG.length){mountCaret();return;}
+      var html=LOG[ti][0],wait=LOG[ti][1];ti++;
+      var ln=document.createElement('span');ln.className='ln';
+      var box=document.createElement('span');
+      box.style.cssText='display:inline-block;opacity:0;transition:opacity .45s';
+      box.innerHTML=html;ln.appendChild(box);tb.appendChild(ln);
+      requestAnimationFrame(function(){box.style.opacity=1;});
+      setTimeout(nextLine,wait);
+    })();
+  }else{
+    LOG.forEach(function(it){
+      var s=document.createElement('span');s.className='ln';s.innerHTML=it[0];tb.appendChild(s);
+    });
+    mountCaret();
+  }
+}
+
+/* ---------- 卡片指针微倾 + 光向描边 ---------- */
+if(matchMedia('(pointer:fine)').matches&&!RM){
+  Array.prototype.forEach.call(document.querySelectorAll('[data-tilt]'),function(card){
+    card.addEventListener('mousemove',function(e){
+      var r=card.getBoundingClientRect(),
+          px=(e.clientX-r.left)/r.width,py=(e.clientY-r.top)/r.height;
+      card.style.transform='perspective(1100px) rotateY('+((px-.5)*4).toFixed(2)+'deg) rotateX('+((.5-py)*3).toFixed(2)+'deg) translateY(-4px)';
+      card.style.setProperty('--angle',(px*320).toFixed(0)+'deg');
+    });
+    card.addEventListener('mouseleave',function(){card.style.transform='';});
+  });
+}
+
+console.log('%c GUO ZIHENG · 感知算法 ','background:#0a0f1e;color:#64ffda;padding:6px 10px;border:1px solid #64ffda');
+})();
+</script>
+</body>
+</html>
