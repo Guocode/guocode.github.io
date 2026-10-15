@@ -198,10 +198,6 @@ export function drawCar(ctx, env, W, H, t = 0) {
            cx - halfW - curbW, cx - halfW, y, curbCol);
       trap(ctx, prev.cx + prev.halfW, prev.cx + prev.halfW + curbW, prev.y,
            cx + halfW, cx + halfW + curbW, y, curbCol);
-      // 中线虚线（世界锚定，6.4 m 周期）
-      if (Math.floor(ws / 6.4) % 2 === 0) {
-        fill(ctx, cx - 1, y, 3, Math.max(1, y - prev.y), PAL.stripe);
-      }
     }
     prev = { cx, y, halfW };
   }
@@ -225,8 +221,30 @@ export function drawCar(ctx, env, W, H, t = 0) {
          cxN - halfN - curbN, cxN - halfN, yN, colN);
     trap(ctx, prev.cx + prev.halfW, prev.cx + prev.halfW + w0, prev.y,
          cxN + halfN, cxN + halfN + curbN, yN, colN);
-    if (Math.floor(wsN / 6.4) % 2 === 0) {
-      fill(ctx, cxN - 2, prev.y, 4, yN - prev.y, PAL.stripe);
+  }
+
+  // 中心虚线：按世界里程带投影（3.2 m 实 + 3.2 m 虚），从近景裁剪面一直画到地平线，
+  // 与路段网格解耦，弯道上也是连续对齐的
+  {
+    const PERIOD = 6.4, DASH = 3.2, ZNEAR = 2.5, ZFAR = SEG * DZ;
+    const offAt = (z) => {              // 与路段一致的横向偏移：整段累加 + 部分段
+      const m = Math.floor(z / DZ), rem = z - m * DZ;
+      let o = 0;
+      for (let k = 1; k <= m; k++) o += trackCurvature(env.s + k * DZ) * DZ * (k * DZ) * 0.5;
+      if (rem > 0) o += trackCurvature(env.s + m * DZ + rem) * rem * (m * DZ + rem) * 0.5;
+      return o;
+    };
+    for (let kb = Math.floor((env.s + ZNEAR) / PERIOD); kb * PERIOD < env.s + ZFAR; kb++) {
+      const z1 = Math.max(kb * PERIOD - env.s, ZNEAR);
+      const z2 = Math.min(kb * PERIOD + DASH - env.s, ZFAR);
+      if (z2 <= z1) continue;
+      const sc1 = FOCAL / z1, y1 = HORIZON + CAM_H * sc1;
+      const sc2 = FOCAL / z2, y2 = HORIZON + CAM_H * sc2;
+      const c1 = W / 2 + (offAt(z1) - env.d) * sc1;
+      const c2 = W / 2 + (offAt(z2) - env.d) * sc2;
+      const w1 = Math.min(5, Math.max(1, 0.10 * sc1));
+      const w2 = Math.min(5, Math.max(1, 0.10 * sc2));
+      trap(ctx, c1 - w1 / 2, c1 + w1 / 2, y1, c2 - w2 / 2, c2 + w2 / 2, y2, PAL.stripe);
     }
   }
 

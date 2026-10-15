@@ -165,9 +165,6 @@ def draw_car(dr, env, ox, oy, w, color, color_hi, color_dk, frame):
                             (cx - half, y), (cx - half - curb_w, y)], fill=curb_col)
                 dr.polygon([(prev[0] + prev[2], prev[1]), (prev[0] + prev[2] + curb_w, prev[1]),
                             (cx + half + curb_w, y), (cx + half, y)], fill=curb_col)
-                # 中线虚线（世界锚定 6.4 m 周期）
-                if int(ws / 6.4) % 2 == 0:
-                    dr.rectangle([cx - 1, y, cx + 2, y + (y - prev[1])], fill=STRIPE)
         prev = (cx, y, half)
 
     # 近景延伸：最近路段一路铺到画面底部（车压在路面上）
@@ -188,8 +185,36 @@ def draw_car(dr, env, ox, oy, w, color, color_hi, color_dk, frame):
                 (cxN - halfN, yN), (cxN - halfN - curbN, yN)], fill=colN)
     dr.polygon([(prev[0] + prev[2], prev[1]), (prev[0] + prev[2] + w0, prev[1]),
                 (cxN + halfN + curbN, yN), (cxN + halfN, yN)], fill=colN)
-    if int(wsN / 6.4) % 2 == 0:
-        dr.rectangle([cxN - 2, prev[1], cxN + 2, yN], fill=STRIPE)
+
+    # 中心虚线：按世界里程带投影（3.2 m 实 + 3.2 m 虚），从近景裁剪面到地平线
+    PERIOD, DASH, ZFAR = 6.4, 3.2, SEG * DZ
+
+    def off_at(zv):
+        m = int(zv // DZ)
+        rem = zv - m * DZ
+        o = 0.0
+        for k in range(1, m + 1):
+            o += track_curvature(env.s[0] + k * DZ) * DZ * (k * DZ) * 0.5
+        if rem > 0:
+            o += track_curvature(env.s[0] + m * DZ + rem) * rem * (m * DZ + rem) * 0.5
+        return o
+
+    kb0 = int((env.s[0] + zN) // PERIOD)
+    while kb0 * PERIOD < env.s[0] + ZFAR:
+        z1 = max(kb0 * PERIOD - env.s[0], zN)
+        z2 = min(kb0 * PERIOD + DASH - env.s[0], ZFAR)
+        kb0 += 1
+        if z2 <= z1:
+            continue
+        sc1, sc2 = FOCAL / z1, FOCAL / z2
+        y1 = oy + HORIZON + CAM_H * sc1
+        y2 = oy + HORIZON + CAM_H * sc2
+        c1 = ox + w / 2 + (off_at(z1) - env.d[0]) * sc1
+        c2 = ox + w / 2 + (off_at(z2) - env.d[0]) * sc2
+        w1 = min(5, max(1, 0.10 * sc1))
+        w2 = min(5, max(1, 0.10 * sc2))
+        dr.polygon([(c1 - w1 / 2, y1), (c1 + w1 / 2, y1),
+                    (c2 + w2 / 2, y2), (c2 - w2 / 2, y2)], fill=STRIPE)
 
     active = env.ev_timer[0] > 0
     is_blow = env.ev_type[0] > 0

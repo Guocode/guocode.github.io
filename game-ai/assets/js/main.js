@@ -33,16 +33,24 @@ class Game {
     this.env.reset(seed);
     this.finished = false;
     this.finishInfo = '';
+    this.sinceDecide = 0.1;           // 新回合立即决策
   }
 
   advance(policy, humanAction) {
     if (this.finished) return;
     let action, gate = null;
     if (this.mode === 'ai' && policy) {
-      const r = policy.act(this.env.obs(), this.taskId);
-      action = r.action;
-      gate = Array.from(r.gate);
-      this.lastGate = gate;
+      // AI 每 100ms 决策一次（10 Hz），决策间隔内保持上一动作——更像人类的反应节奏
+      this.sinceDecide = (this.sinceDecide ?? 0.1) + STEP_DT;
+      if (this.sinceDecide >= 0.1) {
+        const r = policy.act(this.env.obs(), this.taskId);
+        action = r.action;
+        gate = Array.from(r.gate);
+        this.lastGate = gate;
+        this.sinceDecide = 0;
+      } else {
+        action = this.lastAction >= 0 ? this.lastAction : 0;
+      }
     } else {
       // 人类模式：未按键 = 零力矩空转（平衡游戏里站着不动也会摔）
       action = humanAction !== undefined ? humanAction : -1;
