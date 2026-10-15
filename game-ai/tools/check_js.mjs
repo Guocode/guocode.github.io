@@ -10,26 +10,20 @@ import { MoEPolicy } from '../assets/js/moe.js';
 
 const CAP = 3600;   // 与 Python 端 MAX_STEPS 一致（60 s 上限）
 
-// 与 train/env.py 的启发式一致：倒立摆 PD 平衡
+// 与 train/env.py 的启发式一致（v4 两动作）：倒立摆 PD 平衡 bang-bang
 function runnerBalance(e) {
   const u = 2.2 * e.th + 0.9 * e.w;
-  if (u > 0.30) return 3;
-  if (u > 0.05) return 1;
-  if (u < -0.30) return 2;
-  if (u < -0.05) return 0;
-  return 0;
+  return u > 0 ? 1 : 0;          // 后仰 -> 前倾；否则后倾
 }
 
-// 与 train/env.py 的启发式一致：车道保持 + 事件预修正
+// 与 train/env.py 的启发式一致（v4 两动作）：车道保持 + 事件预修正
 function carKeep(e) {
   const kap = trackCurvature(e.s + 14.0);
   const active = e.evTimer > 0;
   const target = -0.20 * (e.d / 3.4) + 0.9 * 2.6 * kap;
   const err = e.psi - target + 0.10 * (active ? e.evDir * e.evMag : 0.0);
-  if (err > 0.10) return 2;
-  if (err > 0.015) return 0;
-  if (err < -0.10) return 3;
-  if (err < -0.015) return 1;
+  if (err > 0.015) return 0;     // 航向偏右 -> 左打
+  if (err < -0.015) return 1;    // 航向偏左 -> 右打
   return 0;
 }
 
@@ -54,7 +48,7 @@ console.log('runner balance    mean %s  std %s  [%s, %s]',
   r.mean.toFixed(2), r.std.toFixed(2), r.min.toFixed(2), r.max.toFixed(2));
 console.log('car lane-keeping  mean %s  std %s  [%s, %s]',
   c.mean.toFixed(2), c.std.toFixed(2), c.min.toFixed(2), c.max.toFixed(2));
-console.log('  (python ref: runner 274.40±0.00 | car 508.66±8.22)');
+console.log('  (python ref: runner 261.91±0.00 | car 497.03±11.10)');
 
 // ---------------- MoE 前向一致性 ----------------
 const w = JSON.parse(fs.readFileSync('assets/models/moe_weights.json', 'utf8'));
@@ -65,8 +59,11 @@ if (fs.existsSync(casesPath)) {
   let maxErr = 0;
   for (const c2 of cases) {
     const out = p.forward(Float32Array.from(c2.obs), c2.task);
-    for (let i = 0; i < 4; i++) {
+    const nAct = c2.logits.length;
+    for (let i = 0; i < nAct; i++) {
       maxErr = Math.max(maxErr, Math.abs(out.logits[i] - c2.logits[i]));
+    }
+    for (let i = 0; i < 4; i++) {
       maxErr = Math.max(maxErr, Math.abs(out.gate[i] - c2.gate[i]));
     }
     maxErr = Math.max(maxErr, Math.abs(out.value - c2.value));

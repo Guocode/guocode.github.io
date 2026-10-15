@@ -198,7 +198,7 @@ footer .row{display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap}
     <p class="lede">
       两个游戏的操作方式、状态语义、失败条件完全不同。这里用一个
       Mixture-of-Experts 策略网络同时学会它们：共享底层特征 + 4 个专家 + top-2 路由，
-      <b style="color:var(--txt)">22,473 个参数</b>、118 KB 权重，直接在你浏览器里跑推理。
+      <b style="color:var(--txt)">22,343 个参数</b>、117 KB 权重，直接在你浏览器里跑推理。
       右侧面板实时显示每一帧走了哪几个专家——你会发现两个游戏几乎不共用专家。
     </p>
     <div class="hero-stats">
@@ -221,7 +221,7 @@ footer .row{display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap}
     <img src="assets/img/versus.gif" alt="AI vs HUMAN 对战回放"
          style="display:block;width:100%;max-width:820px;margin:0 auto;border:1px solid var(--line);image-rendering:auto">
     <p style="text-align:center;margin-top:10px;font-size:12px">
-      <a href="assets/img/versus.gif" download>下载 GIF（约 4.5 MB，适合直接发社交平台）</a>
+      <a href="assets/img/versus.gif" download>下载 GIF（约 4.6 MB，适合直接发社交平台）</a>
     </p>
   </section>
 
@@ -255,7 +255,6 @@ footer .row{display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap}
         <div class="touchpad" data-pad="runner">
           <button class="tp" data-game="runner" data-touch="ArrowLeft">◀ 后倾</button>
           <button class="tp" data-game="runner" data-touch="ArrowRight">前倾 ▶</button>
-          <button class="tp tp-hold" data-game="runner" data-touch="Shift">硬</button>
         </div>
         <div class="hud">
           <div>距离<b id="dist-runner">0.0 m</b></div>
@@ -279,7 +278,6 @@ footer .row{display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap}
         <div class="touchpad" data-pad="car">
           <button class="tp" data-game="car" data-touch="ArrowLeft">◀ 左打</button>
           <button class="tp" data-game="car" data-touch="ArrowRight">右打 ▶</button>
-          <button class="tp tp-hold" data-game="car" data-touch="Shift">硬</button>
         </div>
         <div class="hud">
           <div>里程<b id="dist-car">0.0 m</b></div>
@@ -296,10 +294,10 @@ footer .row{display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap}
     </div>
 
     <p class="keys">
-      键盘：<b>←</b> / <b>→</b> 软操作，<b>Shift + ←</b> / <b>→</b> 硬操作
-      — 机器人：后倾 / 前倾（修正身体平衡）。汽车：左打 / 右打方向。
+      键盘：<b>←</b> / <b>→</b> 单档操作 — 机器人：后倾 / 前倾（修正身体平衡）。
+      汽车：左打 / 右打方向，松键自动回正。
       两关都没有终点，摔下轮子或冲出路面即结束。
-      手机 / 平板：画面下方会出现触摸按键，按住即操作，「硬」按住为硬档；
+      手机 / 平板：画面下方会出现触摸按键，按住即操作；
       在 AI 模式下按任一触摸键会自动接管该游戏。
     </p>
   </section>
@@ -323,10 +321,10 @@ footer .row{display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap}
     <p style="margin-top:14px">
       启发式规则是我手写的：机器人「倒立摆 PD 平衡——倾角与角速度加权超阈值就反向打力矩」，
       汽车「按横向偏移 + 航向角 + 前瞻曲率反打方向，事件期间提前预修正」。
-      诚实结论：加入随机起伏地形后，平衡关 AI 学会了贴合地形节奏的主动平衡——8 个 seed 全部跑满 60 s 时限（274.4 m，与启发式持平且零摔倒）；
-      公路关事件机制 v3（打滑改为角载荷触发 + 冲量衰减 + 冷却期）后整体更「讲道理」：
-      启发式从 336.9 m 提升到 503.8 m，AI 500.4 m 与其同档（多 seed 平均相差 <1%）——
-      当随机惩罚变成可学习的行为后果，简单的手写规则也能逼近上限，这本身就是个有意思的观察。
+      v4 简化到 2 动作、下调难度（噪声与事件更温和、速度上限更低）之后，
+      两边都到了天花板：平衡关 AI 与启发式都是 8 个 seed 全满程（261.9 m，零摔倒）；
+      公路关 AI 500.0 m 首次稳定反超启发式（497.0 m）。
+      历史版本（更难的事件与噪声）中两者差距更大，简单规则曾长期追不上 AI。
     </p>
   </section>
 
@@ -360,8 +358,12 @@ footer .row{display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap}
   <section id="ablation">
     <h2>04 / 架构消融</h2>
     <p class="sec-lede">
-      MoE 是不是只是噱头？我训了一个参数量几乎相同的普通 MLP（20,741 vs 22,473，无专家无路由），
-      用完全一样的训练流程再跑一遍。结论是：<b style="color:var(--txt)">MoE 在两个游戏上都明显更好</b>。
+      MoE 是不是只是噱头？我训了一个参数量几乎相同的普通 MLP（20,547 vs 22,343，无专家无路由），
+      用完全一样的训练流程再跑一遍。
+      诚实地说：<b style="color:var(--txt)">v4 简化动作、下调难度之后，MLP 已经追平 MoE</b>
+      ——任务变简单后，两个任务的梯度干扰几乎消失。
+      在 v2/v3 的高难度版本里（打滑更频繁、噪声更强），MLP 明显落后
+      （公路 365.6 vs 422.2、397.7 vs 422.2），MoE 的优势是随任务难度增长而显现的。
     </p>
     <table>
       <thead>
@@ -375,7 +377,8 @@ footer .row{display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap}
       <tbody id="ablation-body"></tbody>
     </table>
     <p style="margin-top:14px" id="ablation-note">
-      普通 MLP 的两个任务梯度在同一个网络里互相干扰，成绩明显落后；具体数字见上表（由训练结果自动生成）。
+      v4（2 动作 + 温和事件）下两者几乎同档——这是符合直觉的结果：任务之间的干扰消失了，
+      路由自然也无事可做。MoE 的价值在于任务更难、表征需求更大的时候（见 v2/v3 历史数据）。
     </p>
   </section>
 
@@ -385,8 +388,8 @@ footer .row{display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap}
     <p class="sec-lede">
       14 维状态向量是不是「作弊」？我另训了一个真正用<b style="color:var(--txt)">像素画面</b>做观测的版本：
       NumPy 向量化渲染器把两个游戏各画成 3×40×64 的 RGB 帧（0.3–0.8 ms/批，零依赖），
-      CNN 编码器（conv 3→8→16→16，步幅 2）接同款 MoE 头，共 44,425 参数；
-      行为克隆预热 + PPO 流程与向量版完全一致，纯 CPU 训 300 次 updates（27 分钟）。
+      CNN 编码器（conv 3→8→16→16，步幅 2）接同款 MoE 头，共 44,327 参数；
+      行为克隆预热 + PPO 流程与向量版完全一致，训 300 次 updates（纯 CPU 43 分钟）。
     </p>
     <table>
       <thead>
@@ -402,26 +405,26 @@ footer .row{display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap}
         <tr>
           <td>MoE（状态向量）</td>
           <td>14 维标量</td>
-          <td style="text-align:right">22,473</td>
-          <td style="text-align:right"><b style="color:var(--txt)">274.4 m</b>（摔倒 0%）</td>
-          <td style="text-align:right"><b style="color:var(--txt)">500.4 m</b>（失败 0%）</td>
+          <td style="text-align:right">22,343</td>
+          <td style="text-align:right"><b style="color:var(--txt)">261.9 m</b>（摔倒 0%）</td>
+          <td style="text-align:right"><b style="color:var(--txt)">500.0 m</b>（失败 0%）</td>
         </tr>
         <tr>
           <td>CNN + MoE（像素）</td>
           <td>3×40×64 RGB 帧</td>
-          <td style="text-align:right">44,425</td>
-          <td style="text-align:right">161.9 m（摔倒 78%）</td>
-          <td style="text-align:right">482.6 m（失败 0%）</td>
+          <td style="text-align:right">44,327</td>
+          <td style="text-align:right">260.7 m（摔倒 1%）</td>
+          <td style="text-align:right">495.1 m（失败 0%）</td>
         </tr>
       </tbody>
     </table>
     <p style="margin-top:14px">
-      结论很清晰：<b style="color:var(--txt)">像素输入完全可行，但明显更难</b>。
-      公路任务约 100 次 updates 就收敛到 480+ m（与向量版同档）——路面、车道线、事件侧带在低分辨率下仍可分辨；
-      独轮平衡则学得非常吃力：实时俯仰角、地形坡度这类精细标量被压缩进 40×64 像素后，
-      前 250 次 updates 几乎原地踏步，之后才缓慢爬升且方差极大。
-      同样的训练预算下，14 维向量两个任务都稳赢——对小模型而言，观测形式本身就是最大的先验，
-      「看画面学」是更真实的设定，但低维信息才是小模型能吃透的表示。
+      有意思的反转：在 v3（4 动作、事件更凶）里像素版平衡关只学到 161.9 m、摔倒 78%，
+      被向量版碾压；v4 简化动作、下调难度后，像素版两个任务都几乎追平了向量版
+      （平衡 180 次 updates 后开始满程，公路约 100 次收敛）。结论修正为：
+      <b style="color:var(--txt)">观测形式的代价随任务难度上升而放大</b>——
+      任务越苛刻，留给「从像素里提取低维信息」的预算就越少；
+      任务宽容时，40×64 的低分辨率画面也足够让小模型学会看路和看平衡。
     </p>
   </section>
 
@@ -429,8 +432,9 @@ footer .row{display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap}
   <section id="training">
     <h2>06 / 训练过程</h2>
     <p class="sec-lede">
-      多任务 PPO，两个环境各 32 个并行实例，共 500 次更新（纯 CPU）。
-      平衡与车道保持这类连续微调靠随机探索很难起步，所以先用启发式做行为克隆预热，再交给 PPO 微调。
+      多任务 PPO，两个环境各 32 个并行实例，共 800 次 updates（RTX 3060 GPU + NumPy 环境，
+      瓶颈在环境步进而非网络前向）。平衡与车道保持这类连续微调靠随机探索很难起步，
+      所以先用启发式做行为克隆预热，再交给 PPO 微调。
     </p>
     <div class="curve" id="curve-runner"></div>
     <div class="curve" id="curve-car"></div>
@@ -498,7 +502,7 @@ footer .row{display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap}
         <h4>训练要点</h4>
         <div class="sub">踩过的坑</div>
         <ul>
-          <li>软/硬两档力矩（转向）比单档收敛更快——细调与救场由路由自动选择</li>
+          <li>v4 把软/硬两档合并成单档（4→2 动作）：动作少一半，策略更好学，玩家也不用记组合键</li>
           <li>两个任务奖励尺度差数倍 → advantage 按任务分别归一化</li>
           <li>加了 Switch Transformer 的负载均衡损失，避免路由坍缩到单个专家</li>
         </ul>
@@ -526,10 +530,10 @@ footer .row{display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap}
         <div class="sub">倒立摆 + 驱动轮 · 无尽平衡挑战</div>
         <ul>
           <li><b>无腿设计</b>：躯干直接立在驱动轮上，是一个经典的倒立摆——不控制就必摔</li>
-          <li><b>自动前进</b>：轮子按预设速度一直向前滚（2.2 m/s 起步，随时间爬升到 6.5 m/s），前进本身带步频抖动</li>
-          <li><b>平衡噪声</b>：OU 随机过程持续晃动身体，速度越快噪声越大；另有随机颠簸事件（坑洼）产生短促冲击</li>
+          <li><b>自动前进</b>：轮子按预设速度一直向前滚（2.2 m/s 起步，随时间爬升到 5.5 m/s），前进本身带步频抖动</li>
+          <li><b>平衡噪声</b>：OU 随机过程持续晃动身体，速度越快噪声越大；另有随机颠簸事件（坑洼）产生短促冲击——v4 降噪减频，不再莫名暴毙</li>
           <li><b>随机起伏地形</b>：地面由三个正弦叠加的伪随机函数生成（幅度随里程渐入，两端逐位一致）——过凸顶短暂「失重」、上坡后仰下坡前倾，越到后面越颠</li>
-          <li><b>玩家操作</b>：只有 4 档平衡力矩（前倾 / 后倾 × 软 / 硬），把身体稳在直立附近</li>
+          <li><b>玩家操作</b>：只有 2 档平衡力矩（前倾 / 后倾），把身体稳在直立附近</li>
           <li><b>失败</b>：俯仰超过 52°。距离即分数，永不落幕</li>
         </ul>
       </div>
@@ -537,8 +541,8 @@ footer .row{display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap}
         <h4 style="color:var(--orange)">GAME 01 · 无限公路</h4>
         <div class="sub">自动巡航 + 角载荷打滑 / 爆胎 hazards</div>
         <ul>
-          <li><b>去油门刹车</b>：车速全自动——巡航速度随里程爬升（8 → 26 m/s），玩家只管方向</li>
-          <li><b>打滑（行为后果）</b>：转弯角载荷越大越容易触发（猛烈过弯才会甩尾），甩尾方向沿当前转向方向，推力随时间衰减，转向力度剩 45%——少打猛方向就能少打滑</li>
+          <li><b>去油门刹车</b>：车速全自动——巡航速度随里程爬升（8 → 23 m/s），玩家只管方向</li>
+          <li><b>打滑（行为后果）</b>：转弯角载荷越大越容易触发（猛烈过弯才会甩尾），甩尾方向沿当前转向方向，推力随时间衰减，转向力度剩 55%——少打猛方向就能少打滑（v4 降频降幅）</li>
           <li><b>爆胎（路面 hazard）</b>：概率随车速上升，强拽 + 瞬间掉速 20%，事件期间巡航恢复变慢，事件结束后有 2 秒冷却，不会连环倒霉</li>
           <li><b>边界与反馈</b>：路面一路铺到画面底部（白色中线虚线随里程滚动），红白路缘石明确标出碰撞边界，临边一侧红色渐亮警示；事件给出被拽方向箭头，反向打盘即可修正，无全屏闪烁</li>
           <li><b>赛道</b>：曲率是解析函数 <code>κ(s)</code>，无尽生成，两端一致；观测含 4 个前瞻曲率</li>
@@ -549,7 +553,7 @@ footer .row{display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap}
         <h4>共享接口</h4>
         <div class="sub">为什么能用一个模型</div>
         <ul>
-          <li>两个游戏都是 <b>4 个离散动作</b>、<b>14 维观测</b>、<b>60 Hz</b></li>
+          <li>两个游戏都是 <b>2 个离散动作</b>（v4 去掉软/硬档）、<b>14 维观测</b>、<b>60 Hz</b>，接口完全对齐</li>
           <li>观测语义不同但维度一致，靠 2 维任务 one-hot 区分</li>
           <li>奖励都以前进距离为主项，尺度可比</li>
         </ul>

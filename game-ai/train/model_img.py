@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-N_ACT = 4
+N_ACT = 2
 N_TASK = 2
 N_CH, FH, FW = 3, 40, 64
 

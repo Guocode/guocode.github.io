@@ -1,10 +1,11 @@
 /* Pixel Arena v2 — 浏览器端物理环境（无限模式）
  *
  * 常量与积分公式与 train/env.py 逐行对应。
- * 两个游戏共享 4 个离散动作与 14 维观测，因此能被同一个 MoE 模型驱动。
+ * 两个游戏共享 2 个离散动作（v4 去掉软/硬档）与 14 维观测，因此能被同一个 MoE 模型驱动。
  * v2：RUNNER 去腿改独轮平衡（自动前进 + 抖动 + 随机噪声/颠簸）；
  *     CAR 去油门刹车（自动巡航 + 只控转向 + 随机打滑/爆胎）。
  *     两关均无终点：step() 永不超时，只有摔倒/冲出路面才结束。
+ * v4：去掉 Shift 硬档（动作 4→2），难度下调（噪声/事件更温和、速度上限更低）。
  * 注意：Python 端为向量化实现（批量预生成随机数），浏览器端为单实例流式取数，
  * 因此逐位一致无法保证，采用"统计一致性"校验（同策略下两者成绩分布接近）。
  */
@@ -16,11 +17,11 @@ export const STEP_DT = DT * SUBSTEPS;      // 1/60 s
 
 // ------------------------------------------------- Game 0 RUNNER（独轮平衡）
 const K_INV = 3.3, INERTIA = 0.45, C_ANG = 0.30;
-const V_START = 2.2, ACC_RAMP = 0.08, V_JIT = 0.15, JIT_FREQ = 1.7, V_MAX_RUN = 6.5;
+const V_START = 2.2, ACC_RAMP = 0.08, V_JIT = 0.15, JIT_FREQ = 1.7, V_MAX_RUN = 5.5;
 const ACC_COUPLE = 0.10;
-const OU_THETA = 0.8, OU_SIGMA = 2.2, NOISE_GAIN = 0.9, N_SCALE = 3.0;
-const BUMP_P = 0.008, BUMP_T_MIN = 0.15, BUMP_T_MAX = 0.45, BUMP_GAIN = 2.6;
-const T_SOFT = 1.3, T_HARD = 2.6, FALL_ANG = 0.90, W_NORM = 6.0, A_SCALE = 2.0;
+const OU_THETA = 0.8, OU_SIGMA = 1.5, NOISE_GAIN = 0.7, N_SCALE = 3.0;
+const BUMP_P = 0.005, BUMP_T_MIN = 0.15, BUMP_T_MAX = 0.45, BUMP_GAIN = 1.8;
+const T_LEAN = 1.9, FALL_ANG = 0.90, W_NORM = 6.0, A_SCALE = 2.0;
 
 // 随机起伏地形（确定性伪随机函数，与 train/env.py 逐位一致）
 const TER_A = [0.090, 0.050, 0.022];
@@ -49,19 +50,19 @@ export function terrainCurv(x) {
 }
 
 // ------------------------------------------------- Game 1 CAR（无限公路）
-const V_START_CAR = 8.0, V_RAMP = 0.004, V_MAX_CAR = 26.0, K_RELAX = 0.5;
-const STEER_RATE = 2.4, STEER_HARD = 2.0, STEER_MAX = 0.55, STEER_RETURN = 2.0;
+const V_START_CAR = 8.0, V_RAMP = 0.003, V_MAX_CAR = 23.0, K_RELAX = 0.5;
+const STEER_RATE = 2.8, STEER_MAX = 0.55, STEER_RETURN = 2.0;
 const WHEELBASE = 2.6, ROAD_HALF = 3.4, KAPPA_SCALE = 80.0;
 const LOOKAHEAD = [0.0, 12.0, 28.0, 50.0];
 // 事件机制 v3：打滑由转弯角载荷触发（过猛甩尾沿转向方向），爆胎概率随车速；
-// 推力为冲量式衰减包络；事件结束后有冷却期
-const SKID_P = 0.004, SKID_LOAD_GAIN = 2.0;
+// 推力为冲量式衰减包络；事件结束后有冷却期。v4 降频降幅（人类可玩性）。
+const SKID_P = 0.0025, SKID_LOAD_GAIN = 1.2;
 const SKID_T_MIN = 0.6, SKID_T_MAX = 1.4;
-const SKID_RATE = 0.55, SKID_LAT = 0.90, SKID_GRIP = 0.45;
+const SKID_RATE = 0.45, SKID_LAT = 0.70, SKID_GRIP = 0.55;
 const SKID_DIR_TH = 0.15;
-const BLOW_P = 0.0025, BLOW_V_GAIN = 1.5;
+const BLOW_P = 0.0015, BLOW_V_GAIN = 1.0;
 const BLOW_T_MIN = 0.8, BLOW_T_MAX = 1.8;
-const BLOW_RATE = 1.05, BLOW_LAT = 1.60, BLOW_GRIP = 0.60, BLOW_VDROP = 0.80;
+const BLOW_RATE = 0.85, BLOW_LAT = 1.30, BLOW_GRIP = 0.65, BLOW_VDROP = 0.80;
 const BLOW_CRUISE = 0.75;      // 爆胎期间巡航目标折减
 const EV_COOLDOWN = 2.0;       // 事件冷却期（s）
 const D_DIFF_SCALE = 0.05;
@@ -144,7 +145,8 @@ export class RunnerEnv {
   }
 
   step(a) {
-    const tauCmd = a === 0 ? T_SOFT : a === 1 ? -T_SOFT : a === 2 ? T_HARD : a === 3 ? -T_HARD : 0.0;
+    // v4：0 后倾 / 1 前倾（原软硬 4 档合并为单档 T_LEAN）；未按键 = 零力矩空转
+    const tauCmd = a === 0 ? T_LEAN : a === 1 ? -T_LEAN : 0.0;
 
     // 随机颠簸事件（坑洼/碎石）
     const r1 = this.rng(), r2 = this.rng(), r3 = this.rng(), r4 = this.rng();
@@ -237,9 +239,8 @@ export class CarEnv {
   }
 
   step(a) {
-    const hard = a >= 2;
-    const steerIn = (a === 0 || a === 2) ? -STEER_RATE * (hard ? STEER_HARD : 1.0)
-                  : (a === 1 || a === 3) ? STEER_RATE * (hard ? STEER_HARD : 1.0) : 0.0;
+    // v4：0 左转 / 1 右转（单档转向）；未按键 = 自动回中
+    const steerIn = a === 0 ? -STEER_RATE : a === 1 ? STEER_RATE : 0.0;
     // 转向积分 + 自动回中
     this.steer = clamp(this.steer + (steerIn - STEER_RETURN * this.steer * (steerIn === 0 ? 1 : 0)) * DT * SUBSTEPS,
                        -STEER_MAX, STEER_MAX);
@@ -309,13 +310,13 @@ export function makeEnv(taskId, seed = 1) {
 }
 
 export const ACTION_NAMES = [
-  ["LEAN_BACK", "LEAN_FWD", "LEAN_BACK+", "LEAN_FWD+"],
-  ["STEER_L", "STEER_R", "STEER_L+", "STEER_R+"],
+  ["LEAN_BACK", "LEAN_FWD"],
+  ["STEER_L", "STEER_R"],
 ];
 
 export const KEY_HINTS = [
-  ["← 后倾", "→ 前倾", "Shift+← 强后倾", "Shift+→ 强前倾"],
-  ["← 左打", "→ 右打", "Shift+← 左打(强)", "Shift+→ 右打(强)"],
+  ["← 后倾", "→ 前倾"],
+  ["← 左打", "→ 右打"],
 ];
 
 export const CONST = { ROAD_HALF, V_MAX_CAR, V_MAX_RUN, FALL_ANG, STEP_DT };

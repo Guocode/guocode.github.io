@@ -5,7 +5,7 @@
  *   trunk(16->64, Tanh) -> trunk(64->64, Tanh)
  *   router(64->4) -> top-2 softmax 门控
  *   4 个 expert(64->64, Tanh)，按门控加权求和
- *   actor(64->4) + critic(64->1)
+ *   actor(64->2) + critic(64->1)   （v4：动作 4→2，去掉软/硬档）
  */
 
 function b64ToF32(s) {
@@ -31,13 +31,14 @@ export class MoEPolicy {
     for (const k in weights) this.t[k] = b64ToF32(weights[k].data);
     this.nExperts = 4;
     this.hidden = 64;
+    this.nAct = this.t["actor.bias"].length;   // 动作维度随权重自适应（现为 2）
     this._h = new Float32Array(64);
     this._h2 = new Float32Array(64);
     this._e = new Float32Array(64);
     this._in = new Float32Array(16);
     this._r = new Float32Array(4);
     this._y = new Float32Array(64);
-    this._logits = new Float32Array(4);
+    this._logits = new Float32Array(this.nAct);
     this._gate = new Float32Array(4);
   }
 
@@ -84,7 +85,7 @@ export class MoEPolicy {
 
     // actor / critic（线性输出，无激活）
     const aw = this.t["actor.weight"], ab = this.t["actor.bias"];
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < this.nAct; i++) {
       let s = ab[i];
       for (let j = 0; j < 64; j++) s += aw[i * 64 + j] * y[j];
       this._logits[i] = s;
@@ -99,7 +100,7 @@ export class MoEPolicy {
   act(obs, taskId) {
     const r = this.forward(obs, taskId);
     let best = 0;
-    for (let i = 1; i < 4; i++) if (r.logits[i] > r.logits[best]) best = i;
+    for (let i = 1; i < this.nAct; i++) if (r.logits[i] > r.logits[best]) best = i;
     return { action: best, ...r };
   }
 }

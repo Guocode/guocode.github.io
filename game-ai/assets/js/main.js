@@ -123,7 +123,6 @@ async function main() {
   let mode = 0;
   let speed = 1;
   let paused = false;
-  let shiftDown = false;
   const keys = new Set();
 
   function applyMode() {
@@ -162,22 +161,19 @@ async function main() {
   });
 
   window.addEventListener('keydown', (e) => {
-    if (e.key === 'Shift') shiftDown = true;
     if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
       keys.add(e.key);
       e.preventDefault();
     }
   });
   window.addEventListener('keyup', (e) => {
-    if (e.key === 'Shift') shiftDown = false;
     keys.delete(e.key);
   });
 
-  // v2：← → 为软档（机器人后倾/前倾，汽车左转/右转），Shift+← → 为硬档
+  // v4：← → 单档操作（机器人后倾/前倾，汽车左转/右转），未按键 = 空档
   function humanAction() {
-    const hard = shiftDown ? 2 : 0;
-    if (keys.has('ArrowLeft')) return 0 + hard;
-    if (keys.has('ArrowRight')) return 1 + hard;
+    if (keys.has('ArrowLeft')) return 0;
+    if (keys.has('ArrowRight')) return 1;
     return -1;
   }
 
@@ -187,19 +183,19 @@ async function main() {
     document.body.classList.add('touch');
   }
   document.querySelectorAll('.tp').forEach(b => {
-    const key = b.dataset.touch;               // ArrowLeft | ArrowRight | Shift
+    const key = b.dataset.touch;               // ArrowLeft | ArrowRight
     const game = b.dataset.game;               // runner | car
     const wantMode = game === 'runner' ? 1 : 2;
     const press = (e) => {
       e.preventDefault();
       b.classList.add('on');
       if (mode !== wantMode) { mode = wantMode; applyMode(); }   // 自动接管
-      if (key === 'Shift') shiftDown = true; else keys.add(key);
+      keys.add(key);
     };
     const release = (e) => {
       if (e) e.preventDefault();
       b.classList.remove('on');
-      if (key === 'Shift') shiftDown = false; else keys.delete(key);
+      keys.delete(key);
     };
     b.addEventListener('pointerdown', press);
     b.addEventListener('pointerup', release);

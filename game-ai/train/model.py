@@ -17,7 +17,7 @@ import torch.nn.functional as F
 
 N_OBS = 14
 N_TASK = 2
-N_ACT = 4
+N_ACT = 2
 
 
 class MoEPolicy(nn.Module):

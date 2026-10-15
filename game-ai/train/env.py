@@ -7,10 +7,10 @@ v2 变化
   * 两关均无终点：MAX_STEPS 只是训练用回合上限，浏览器端永不超时
   * RUNNER 去掉腿自由度：躯干立在驱动轮上（倒立摆），前进本身带抖动，
     另有随机平衡噪声（OU 过程）与随机颠簸事件，玩家只有 4 档平衡力矩
-  * CAR 去掉油门/刹车：车速自动爬升，玩家只有 4 档转向；
+  * CAR 去掉油门/刹车：车速自动爬升，玩家只有 2 档转向；
     随机事件分两类——打滑（侧滑 + 转向力下降）与爆胎（强拽偏 + 掉速）
-  * 动作空间仍为 4 个离散动作、观测 14 维、步频 1/60 s（2 个 1/120 子步），
-    同一个 MoE 策略网络可直接驱动
+  * 动作空间 2 个离散动作（v4 去掉软/硬档）、观测 14 维、步频 1/60 s（2 个 1/120 子步），
+    同一个 MoE 策略网络可直接驱动；人类模式未按键 = 空档（零力矩/自动回中）
 
 本文件中的常量与积分公式与浏览器端 assets/js/env.js 逐行对应。
 """
@@ -21,12 +21,12 @@ import numpy as np
 DT = 1.0 / 120.0
 SUBSTEPS = 2
 N_OBS = 14
-N_ACT = 4
+N_ACT = 2
 MAX_STEPS = 3600          # 训练用回合上限 60 s；浏览器端无超时（无限模式）
 
 ACT_NAMES = {
-    0: ["LEAN_BACK", "LEAN_FWD", "LEAN_BACK+", "LEAN_FWD+"],
-    1: ["STEER_L", "STEER_R", "STEER_L+", "STEER_R+"],
+    0: ["LEAN_BACK", "LEAN_FWD"],
+    1: ["STEER_L", "STEER_R"],
 }
 
 # ================================================================= Game 0 RUNNER（独轮平衡）
@@ -39,21 +39,20 @@ V_START = 2.2           # 起始车速 m/s
 ACC_RAMP = 0.08         # 车速随时间线性爬升
 V_JIT = 0.15            # 步频抖动幅度（前进姿势带来的持续抖动）
 JIT_FREQ = 1.7          # 抖动频率 Hz
-V_MAX_RUN = 6.5
+V_MAX_RUN = 5.5
 ACC_COUPLE = 0.10       # 加速度对俯仰的耦合（加速时身体后仰）
-# 平衡噪声：OU 随机过程，速度越快噪声越大
+# 平衡噪声：OU 随机过程，速度越快噪声越大（v4 降噪：人类可玩性优先）
 OU_THETA = 0.8
-OU_SIGMA = 2.2
-NOISE_GAIN = 0.9
+OU_SIGMA = 1.5
+NOISE_GAIN = 0.7
 N_SCALE = 3.0           # 观测归一化
-# 随机颠簸事件（坑洼/碎石）：短促力矩冲击
-BUMP_P = 0.008
+# 随机颠簸事件（坑洼/碎石）：短促力矩冲击（v4 减频减幅）
+BUMP_P = 0.005
 BUMP_T_MIN = 0.15
 BUMP_T_MAX = 0.45
-BUMP_GAIN = 2.6
-# 玩家力矩（软/硬各两档，方向由动作决定）
-T_SOFT = 1.3
-T_HARD = 2.6
+BUMP_GAIN = 1.8
+# 玩家力矩（单档，方向由动作决定；原软 1.3 / 硬 2.6 折中）
+T_LEAN = 1.9
 FALL_ANG = 0.90
 W_NORM = 6.0
 A_SCALE = 2.0
@@ -79,11 +78,10 @@ FALL_PENALTY = 1.0
 # ================================================================= Game 1 CAR（无限公路）
 CAR_DRAG = 0.22
 V_START_CAR = 8.0       # 起步巡航速度
-V_RAMP = 0.004          # 巡航速度随里程爬升（难度递增）
-V_MAX_CAR = 26.0
+V_RAMP = 0.003          # 巡航速度随里程爬升（难度递增，v4 放缓）
+V_MAX_CAR = 23.0
 K_RELAX = 0.5           # 实际车速向巡航速度弛豫的速率
-STEER_RATE = 2.4
-STEER_HARD = 2.0        # 硬转向倍率
+STEER_RATE = 2.8        # 转向速率（单档；原软 2.4 / 硬 4.8 折中）
 STEER_MAX = 0.55
 STEER_RETURN = 2.0
 WHEELBASE = 2.6
@@ -93,20 +91,21 @@ LOOKAHEAD = (0.0, 12.0, 28.0, 50.0)
 # 事件机制 v3：打滑由转弯角载荷触发（过猛甩尾，沿当前转向方向继续旋转），
 #              爆胎是路面随机 hazards（概率随车速上升）。推力均为冲量式衰减包络，
 #              事件结束后有冷却期，杜绝连环事件。
-SKID_P = 0.004           # 基础概率/步（零载荷直行时很低）
-SKID_LOAD_GAIN = 2.0     # 载荷增益：p = SKID_P * (0.3 + GAIN * load)
+#              v4 全面降频降幅：人类玩家不再被连环事件劝退。
+SKID_P = 0.0025          # 基础概率/步（零载荷直行时很低）
+SKID_LOAD_GAIN = 1.2     # 载荷增益：p = SKID_P * (0.3 + GAIN * load)
 SKID_T_MIN, SKID_T_MAX = 0.6, 1.4
-SKID_RATE = 0.55         # 偏航角速度 rad/s（×衰减包络）
-SKID_LAT = 0.90          # 横向漂移 m/s（×衰减包络）
-SKID_GRIP = 0.45         # 打滑时转向执行力度
+SKID_RATE = 0.45         # 偏航角速度 rad/s（×衰减包络）
+SKID_LAT = 0.70          # 横向漂移 m/s（×衰减包络）
+SKID_GRIP = 0.55         # 打滑时转向执行力度
 SKID_DIR_TH = 0.15       # |转向| 超过该值视为"转弯中"，甩尾方向 = 转向方向
 # 爆胎（少见、猛烈、掉速且巡航恢复变慢）
-BLOW_P = 0.0025
-BLOW_V_GAIN = 1.5        # 速度增益：p = BLOW_P * (0.5 + GAIN * v/vmax)
+BLOW_P = 0.0015
+BLOW_V_GAIN = 1.0        # 速度增益：p = BLOW_P * (0.5 + GAIN * v/vmax)
 BLOW_T_MIN, BLOW_T_MAX = 0.8, 1.8
-BLOW_RATE = 1.05
-BLOW_LAT = 1.60
-BLOW_GRIP = 0.60
+BLOW_RATE = 0.85
+BLOW_LAT = 1.30
+BLOW_GRIP = 0.65
 BLOW_VDROP = 0.80        # 爆胎瞬间速度保留比例
 BLOW_CRUISE = 0.75       # 事件期间巡航目标折减（爆胎后恢复慢，更真实）
 EV_COOLDOWN = 2.0        # 事件结束后的冷却期（s）
@@ -161,9 +160,9 @@ class BaseEnv:
 
 # ================================================================= Game 0
 class RunnerEnv(BaseEnv):
-    """独轮平衡机器人。动作：
-       0 后倾(软)  1 前倾(软)  2 后倾(硬)  3 前倾(硬)
-       约定 th > 0 为后仰；纠正后仰需要前倾力矩（负力矩）。"""
+    """独轮平衡机器人。动作：0 后倾  1 前倾
+       约定 th > 0 为后仰；纠正后仰需要前倾力矩（负力矩）。
+       未按键（a = -1 或越界）= 零力矩空转。"""
 
     task_id = 0
 
@@ -253,8 +252,7 @@ class RunnerEnv(BaseEnv):
 
     def step(self, actions):
         a = np.asarray(actions, dtype=np.int64)
-        tau_cmd = np.where(a == 0, T_SOFT, np.where(a == 1, -T_SOFT,
-                           np.where(a == 2, T_HARD, np.where(a == 3, -T_HARD, 0.0))))
+        tau_cmd = np.where(a == 0, T_LEAN, np.where(a == 1, -T_LEAN, 0.0))
 
         # 随机颠簸事件
         idle = self.b_timer <= 0
@@ -310,9 +308,9 @@ class RunnerEnv(BaseEnv):
 
 # ================================================================= Game 1
 class CarEnv(BaseEnv):
-    """无限公路。动作：
-       0 左转(软)  1 右转(软)  2 左转(硬)  3 右转(硬)
-       油门全自动（巡航速度随里程爬升），随机事件分打滑 / 爆胎两类。"""
+    """无限公路。动作：0 左转  1 右转
+       油门全自动（巡航速度随里程爬升），随机事件分打滑 / 爆胎两类。
+       未按键（a = -1 或越界）= 自动回中。"""
 
     task_id = 1
 
@@ -385,9 +383,7 @@ class CarEnv(BaseEnv):
 
     def step(self, actions):
         a = np.asarray(actions, dtype=np.int64)
-        hard = (a >= 2).astype(np.float64)
-        steer_in = np.where((a == 0) | (a == 2), -STEER_RATE * np.where(hard > 0, STEER_HARD, 1.0),
-                            np.where((a == 1) | (a == 3), STEER_RATE * np.where(hard > 0, STEER_HARD, 1.0), 0.0))
+        steer_in = np.where(a == 0, -STEER_RATE, np.where(a == 1, STEER_RATE, 0.0))
         # 转向积分 + 自动回中
         self.steer = np.clip(
             self.steer + (steer_in - STEER_RETURN * self.steer * (steer_in == 0)) * DT * SUBSTEPS,
@@ -470,14 +466,9 @@ def make_env(task_id, n, seed=None):
 # ================================================================= 启发式基线
 def runner_heuristic(env):
     """倒立摆 PD 平衡：u = KP*th + KD*w > 0 表示正在向后倒，
-    需要前倾力矩（负）纠正；误差越大档位越硬。"""
+    需要前倾力矩（负）纠正；2 动作下为 bang-bang 控制。"""
     u = 2.2 * env.th + 0.9 * env.w
-    act = np.zeros(env.n, dtype=np.int64)
-    act = np.where(u > 0.05, 1, act)          # 后仰 -> 前倾(软)
-    act = np.where(u > 0.30, 3, act)          # 严重   -> 前倾(硬)
-    act = np.where(u < -0.05, 0, act)         # 前倾 -> 后倾(软)
-    act = np.where(u < -0.30, 2, act)         # 严重 -> 后倾(硬)
-    return act
+    return np.where(u > 0.0, 1, 0).astype(np.int64)   # 后仰 -> 前倾；否则后倾
 
 
 def car_heuristic(env):
@@ -488,8 +479,6 @@ def car_heuristic(env):
     # 事件把航向往 dir 方向拽，提前向反方向多打一点（dir>0 推高 psi -> 更需要左转）
     err = env.psi - target_psi + 0.10 * np.where(active, env.ev_dir * env.ev_mag, 0.0)
     act = np.where(err > 0.015, 0, np.where(err < -0.015, 1, 0))
-    act = np.where(err > 0.10, 2, act)
-    act = np.where(err < -0.10, 3, act)
     return act.astype(np.int64)
 
 
@@ -520,7 +509,7 @@ if __name__ == "__main__":
     import time
     t0 = time.time()
     print("runner heuristic:", rollout_stats(RunnerEnv, runner_heuristic, 32, 1))
-    print("runner random   :", rollout_stats(RunnerEnv, lambda e: e.rng.integers(0, 4, size=e.n), 32, 1))
+    print("runner random   :", rollout_stats(RunnerEnv, lambda e: e.rng.integers(0, N_ACT, size=e.n), 32, 1))
     print("car heuristic   :", rollout_stats(CarEnv, car_heuristic, 32, 1))
-    print("car random      :", rollout_stats(CarEnv, lambda e: e.rng.integers(0, 4, size=e.n), 32, 1))
+    print("car random      :", rollout_stats(CarEnv, lambda e: e.rng.integers(0, N_ACT, size=e.n), 32, 1))
     print("elapsed %.1fs" % (time.time() - t0))

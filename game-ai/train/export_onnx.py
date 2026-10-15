@@ -12,7 +12,8 @@ import os
 import numpy as np
 import torch
 
-from env import (RunnerEnv, CarEnv, MAX_STEPS, runner_heuristic, car_heuristic)
+from env import (RunnerEnv, CarEnv, MAX_STEPS, N_ACT,
+                 runner_heuristic, car_heuristic)
 from model import MoEPolicy, MLPPolicy, count_params
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -127,7 +128,7 @@ def evaluate_random(env_cls, n_ep=16, seeds=EVAL_SEEDS):
         dist = np.zeros(n_ep)
         fin = np.zeros(n_ep, dtype=bool)
         for _ in range(MAX_STEPS):
-            _, _, done, info = env.step(env.rng.integers(0, 4, size=n_ep))
+            _, _, done, info = env.step(env.rng.integers(0, N_ACT, size=n_ep))
             idx = np.where(done & ~fin)[0]
             for i in idx:
                 dist[i] = info["x"][i]
