@@ -527,12 +527,29 @@ footer{border-top:1px solid var(--line);padding:2rem 0 2.6rem;color:var(--dim);f
           共享底层 + 4 个专家 + top-2 路由, 启发式行为克隆预热后接多任务 PPO。模型小到可以直接在浏览器里手写前向推理,
           <b>零依赖实时对战</b>, 键盘可随时接管与模型同屏比赛; 路由权重逐帧可视化——两个游戏分别占据不同专家(90.3% / 99.8%)。
           另训一个等参数量 MLP 做对照, MoE 在两个任务上都更优。</p>
-        <div class="metric"><span>机器人赛跑</span><b>88.1 m · 超启发式 10%</b></div>
-        <div class="metric"><span>汽车驾驶</span><b>544 m · 超启发式 266%</b></div>
-        <div class="metric"><span>模型体积</span><b>22,473 参数 · 118 KB</b></div>
+        <div class="metric"><span>机器人赛跑</span><b>261.9 m · 满程零摔倒</b></div>
+        <div class="metric"><span>汽车驾驶</span><b>500.0 m · 反超启发式</b></div>
+        <div class="metric"><span>模型体积</span><b>22,343 参数 · 118 KB</b></div>
         <div class="proj-cta">
           <a class="btn p2" href="game-ai/">打开在线 Demo</a>
           <a class="lnk" href="game-ai/#router">看专家路由可视化</a>
+        </div>
+      </div>
+
+      <div class="proj reveal" data-tilt>
+        <div class="num">08</div>
+        <span class="ft">CITYDRIVE — 端到端智驾 RL</span>
+        <h3>城市端到端智驾 AI · 物理环境</h3>
+        <p>自研城市驾驶物理环境: <b>4×4 灯控路网</b>、双向两车道右侧行驶、22 辆 NPC 车辆(跟车/红灯排队/路口转向) +
+          行人 + 骑车人;<b>Dijkstra 导航引擎</b>支持最优路径、到达终点自动换新目标、走错路自动重规划。
+          阶段一已上线<b>可驾驶物理环境</b>(手动油门/转向 + AI 专家演示), 阶段二将接入 6 路 BEV 语义相机 +
+          导航结构化输入的<b>端到端 CNN 强化学习</b>模型。</p>
+        <div class="metric"><span>路网规模</span><b>4×4 路口 · 48 有向边</b></div>
+        <div class="metric"><span>交通参与者</span><b>22 车 · 6 骑车 · 12 行人</b></div>
+        <div class="metric"><span>专家闭环</span><b>零碰撞 · 无尽导航</b></div>
+        <div class="proj-cta">
+          <a class="btn p2" href="drv-ai/">打开驾驶环境 Demo</a>
+          <a class="lnk" href="drv-ai/#plan">看项目规划</a>
         </div>
       </div>
 
