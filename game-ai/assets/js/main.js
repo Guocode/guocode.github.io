@@ -173,6 +173,33 @@ async function main() {
     return -1;
   }
 
+  // 触摸控制（手机 / 平板）：按住 = 按键。触摸设备显示按键，
+  // 在 AI 模式下按某一侧的触摸键会自动接管该游戏。
+  if ('ontouchstart' in window || (navigator.maxTouchPoints || 0) > 0) {
+    document.body.classList.add('touch');
+  }
+  document.querySelectorAll('.tp').forEach(b => {
+    const key = b.dataset.touch;               // ArrowLeft | ArrowRight | Shift
+    const game = b.dataset.game;               // runner | car
+    const wantMode = game === 'runner' ? 1 : 2;
+    const press = (e) => {
+      e.preventDefault();
+      b.classList.add('on');
+      if (mode !== wantMode) { mode = wantMode; applyMode(); }   // 自动接管
+      if (key === 'Shift') shiftDown = true; else keys.add(key);
+    };
+    const release = (e) => {
+      if (e) e.preventDefault();
+      b.classList.remove('on');
+      if (key === 'Shift') shiftDown = false; else keys.delete(key);
+    };
+    b.addEventListener('pointerdown', press);
+    b.addEventListener('pointerup', release);
+    b.addEventListener('pointercancel', release);
+    b.addEventListener('pointerleave', release);
+    b.addEventListener('contextmenu', (e) => e.preventDefault());
+  });
+
   applyMode();
 
   // 主循环：固定 60 Hz 步进

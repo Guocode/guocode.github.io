@@ -131,7 +131,7 @@ def draw_runner(dr, env, ox, oy, w, color, color_hi, color_dk):
 # ------------------------------------------------------------ 汽车赛道
 def draw_car(dr, env, ox, oy, w, color, color_hi, color_dk, frame):
     HORIZON = int(CELL_H * 0.34)
-    FOCAL, CAM_H, SEG, DZ = 150, 1.15, 30, 4.0
+    FOCAL, CAM_H, SEG, DZ = 150, 2.0, 30, 4.0
 
     dr.rectangle([ox, oy, ox + w, oy + HORIZON], fill=SKY)
     dr.rectangle([ox, oy, ox + w, oy + int(HORIZON * 0.55)], fill=SKY_HI)
@@ -167,8 +167,29 @@ def draw_car(dr, env, ox, oy, w, color, color_hi, color_dk, frame):
                             (cx + half + curb_w, y), (cx + half, y)], fill=curb_col)
                 # 中线虚线（世界锚定 6.4 m 周期）
                 if int(ws / 6.4) % 2 == 0:
-                    dr.rectangle([cx - 1, y, cx + 1, y + (y - prev[1])], fill=STRIPE_DIM)
+                    dr.rectangle([cx - 1, y, cx + 2, y + (y - prev[1])], fill=STRIPE)
         prev = (cx, y, half)
+
+    # 近景延伸：最近路段一路铺到画面底部（车压在路面上）
+    zN = 2.5
+    scaleN = FOCAL / zN
+    yN = oy + HORIZON + CAM_H * scaleN
+    offN = track_curvature(env.s[0] + zN) * zN * zN * 0.5
+    cxN = ox + w / 2 + (offN - env.d[0]) * scaleN
+    halfN = 3.4 * scaleN
+    wsN = env.s[0] + zN * 1.2
+    dr.polygon([(prev[0] - prev[2], prev[1]), (prev[0] + prev[2], prev[1]),
+                (cxN + halfN, yN), (cxN - halfN, yN)],
+               fill=ROAD if int(wsN / DZ) % 2 == 0 else ROAD_HI)
+    curbN = min(max(2, 0.55 * scaleN), 26)   # 近景路缘封顶
+    w0 = max(1.5, 0.55 * (FOCAL / DZ))
+    colN = DANGER if int(wsN / 2.6) % 2 == 0 else STRIPE
+    dr.polygon([(prev[0] - prev[2] - w0, prev[1]), (prev[0] - prev[2], prev[1]),
+                (cxN - halfN, yN), (cxN - halfN - curbN, yN)], fill=colN)
+    dr.polygon([(prev[0] + prev[2], prev[1]), (prev[0] + prev[2] + w0, prev[1]),
+                (cxN + halfN + curbN, yN), (cxN + halfN, yN)], fill=colN)
+    if int(wsN / 6.4) % 2 == 0:
+        dr.rectangle([cxN - 2, prev[1], cxN + 2, yN], fill=STRIPE)
 
     active = env.ev_timer[0] > 0
     is_blow = env.ev_type[0] > 0

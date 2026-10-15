@@ -157,7 +157,7 @@ function hArrow(ctx, cx, cy, dir, col) {
 export function drawCar(ctx, env, W, H, t = 0) {
   const HORIZON = Math.round(H * 0.34);
   const FOCAL = 150;
-  const CAM_H = 1.15;
+  const CAM_H = 2.0;                  // 相机高度：抬高后近景路面不会宽出画面太多
   const SEG = 44;
   const DZ = 3.2;
 
@@ -200,10 +200,34 @@ export function drawCar(ctx, env, W, H, t = 0) {
            cx + halfW, cx + halfW + curbW, y, curbCol);
       // 中线虚线（世界锚定，6.4 m 周期）
       if (Math.floor(ws / 6.4) % 2 === 0) {
-        fill(ctx, cx - 1, y, 2, Math.max(1, y - prev.y), PAL.stripeDim);
+        fill(ctx, cx - 1, y, 3, Math.max(1, y - prev.y), PAL.stripe);
       }
     }
     prev = { cx, y, halfW };
+  }
+
+  // 近景延伸：把最近路段一路铺到画面最底部（车就压在路面上）
+  {
+    const zN = 2.5;
+    const scaleN = FOCAL / zN;
+    const yN = HORIZON + CAM_H * scaleN;
+    const offN = trackCurvature(env.s + zN) * zN * zN * 0.5;
+    const cxN = W / 2 + (offN - env.d) * scaleN;
+    const halfN = ROAD_HALF * scaleN;
+    const wsN = env.s + zN * 1.2;
+    trap(ctx, prev.cx - prev.halfW, prev.cx + prev.halfW, prev.y,
+         cxN - halfN, cxN + halfN, yN,
+         Math.floor(wsN / DZ) % 2 === 0 ? PAL.road : PAL.roadHi);
+    const curbN = Math.min(Math.max(2, 0.55 * scaleN), 26);   // 近景路缘封顶，避免巨型斜条
+    const w0 = Math.max(1.5, 0.55 * (FOCAL / DZ));   // 衔接最近路段的路缘宽
+    const colN = Math.floor(wsN / 2.6) % 2 === 0 ? PAL.danger : PAL.stripe;
+    trap(ctx, prev.cx - prev.halfW - w0, prev.cx - prev.halfW, prev.y,
+         cxN - halfN - curbN, cxN - halfN, yN, colN);
+    trap(ctx, prev.cx + prev.halfW, prev.cx + prev.halfW + w0, prev.y,
+         cxN + halfN, cxN + halfN + curbN, yN, colN);
+    if (Math.floor(wsN / 6.4) % 2 === 0) {
+      fill(ctx, cxN - 2, prev.y, 4, yN - prev.y, PAL.stripe);
+    }
   }
 
   // 远景雾（静态，增强纵深）

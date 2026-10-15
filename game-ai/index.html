@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Pixel Arena · 一个 MoE 模型同时玩两个游戏</title>
 <meta name="description" content="22K 参数的 MoE 强化学习模型，同时学会「独轮平衡机器人」与「无限公路驾驶」两个无尽模式游戏。浏览器内实时推理，可键盘对战，专家路由全程可视化。">
 <meta name="theme-color" content="#0a0f1e">
@@ -100,6 +100,17 @@ canvas{
 .delta.up{color:var(--teal)}
 .delta.down{color:var(--red)}
 .keys{margin-top:14px;font-size:12px;color:var(--dim2)}
+
+/* ---------- 触摸按键（手机） ---------- */
+.touchpad{display:none;gap:8px;margin-top:10px}
+body.touch .touchpad{display:flex}
+.tp{
+  flex:1;padding:16px 0;font-size:17px;letter-spacing:.06em;text-align:center;
+  touch-action:none;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent;
+}
+.tp-hold{flex:0 0 84px}
+.tp.on{background:rgba(255,180,84,.14);color:var(--orange);border-color:var(--orange)}
+.tp-hold.on{background:rgba(255,107,107,.14);color:var(--red);border-color:var(--red)}
 
 /* ---------- gate ---------- */
 .gate-panel{margin-top:12px;border-top:1px dashed var(--line);padding-top:10px}
@@ -210,7 +221,7 @@ footer .row{display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap}
     <img src="assets/img/versus.gif" alt="AI vs HUMAN 对战回放"
          style="display:block;width:100%;max-width:820px;margin:0 auto;border:1px solid var(--line);image-rendering:auto">
     <p style="text-align:center;margin-top:10px;font-size:12px">
-      <a href="assets/img/versus.gif" download>下载 GIF（约 3.2 MB，适合直接发社交平台）</a>
+      <a href="assets/img/versus.gif" download>下载 GIF（约 4.5 MB，适合直接发社交平台）</a>
     </p>
   </section>
 
@@ -241,6 +252,11 @@ footer .row{display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap}
           <span class="hint" id="hint-runner"></span>
         </div>
         <canvas id="cv-runner"></canvas>
+        <div class="touchpad" data-pad="runner">
+          <button class="tp" data-game="runner" data-touch="ArrowLeft">◀ 后倾</button>
+          <button class="tp" data-game="runner" data-touch="ArrowRight">前倾 ▶</button>
+          <button class="tp tp-hold" data-game="runner" data-touch="Shift">硬</button>
+        </div>
         <div class="hud">
           <div>距离<b id="dist-runner">0.0 m</b></div>
           <div>速度<b id="speed-runner">0.0</b></div>
@@ -260,6 +276,11 @@ footer .row{display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap}
           <span class="hint" id="hint-car"></span>
         </div>
         <canvas id="cv-car"></canvas>
+        <div class="touchpad" data-pad="car">
+          <button class="tp" data-game="car" data-touch="ArrowLeft">◀ 左打</button>
+          <button class="tp" data-game="car" data-touch="ArrowRight">右打 ▶</button>
+          <button class="tp tp-hold" data-game="car" data-touch="Shift">硬</button>
+        </div>
         <div class="hud">
           <div>里程<b id="dist-car">0.0 m</b></div>
           <div>车速<b id="speed-car">0.0</b></div>
@@ -278,6 +299,8 @@ footer .row{display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap}
       键盘：<b>←</b> / <b>→</b> 软操作，<b>Shift + ←</b> / <b>→</b> 硬操作
       — 机器人：后倾 / 前倾（修正身体平衡）。汽车：左打 / 右打方向。
       两关都没有终点，摔下轮子或冲出路面即结束。
+      手机 / 平板：画面下方会出现触摸按键，按住即操作，「硬」按住为硬档；
+      在 AI 模式下按任一触摸键会自动接管该游戏。
     </p>
   </section>
 
@@ -471,7 +494,7 @@ footer .row{display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap}
           <li><b>去油门刹车</b>：车速全自动——巡航速度随里程爬升（8 → 26 m/s），玩家只管方向</li>
           <li><b>打滑（行为后果）</b>：转弯角载荷越大越容易触发（猛烈过弯才会甩尾），甩尾方向沿当前转向方向，推力随时间衰减，转向力度剩 45%——少打猛方向就能少打滑</li>
           <li><b>爆胎（路面 hazard）</b>：概率随车速上升，强拽 + 瞬间掉速 20%，事件期间巡航恢复变慢，事件结束后有 2 秒冷却，不会连环倒霉</li>
-          <li><b>边界与反馈</b>：红白路缘石明确标出碰撞边界，临边一侧红色渐亮警示；事件给出被拽方向箭头，反向打盘即可修正，无全屏闪烁</li>
+          <li><b>边界与反馈</b>：路面一路铺到画面底部（白色中线虚线随里程滚动），红白路缘石明确标出碰撞边界，临边一侧红色渐亮警示；事件给出被拽方向箭头，反向打盘即可修正，无全屏闪烁</li>
           <li><b>赛道</b>：曲率是解析函数 <code>κ(s)</code>，无尽生成，两端一致；观测含 4 个前瞻曲率</li>
           <li><b>失败</b>：冲出路面。里程即分数，永不落幕</li>
         </ul>
