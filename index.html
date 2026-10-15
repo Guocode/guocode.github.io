@@ -239,7 +239,8 @@ h2 .side{font:500 .68rem/1.5 var(--mono);color:var(--dim);letter-spacing:.3em;wh
 
 /* ---------- PROJECTS ---------- */
 .bento{display:grid;grid-template-columns:repeat(2,1fr);gap:18px}
-@media(max-width:680px){.bento{grid-template-columns:1fr}}
+.proj.wide{grid-column:span 2}
+@media(max-width:680px){.bento{grid-template-columns:1fr}.proj.wide{grid-column:span 1}}
 .proj{border:1px solid var(--line);border-radius:var(--r);background:var(--surface);padding:1.6rem 1.6rem 1.45rem;position:relative;overflow:hidden;
   transition:transform .35s,border-color .35s,box-shadow .35s;will-change:transform}
 .proj::before{content:'';position:absolute;inset:0;border-radius:inherit;padding:1px;opacity:0;transition:opacity .45s;
@@ -255,6 +256,8 @@ h2 .side{font:500 .68rem/1.5 var(--mono);color:var(--dim);letter-spacing:.3em;wh
 .proj p b{color:var(--fg);font-weight:600}
 .metric{display:flex;justify-content:space-between;align-items:baseline;font:500 .72rem/1.4 var(--mono);color:var(--dim);letter-spacing:.08em;border-top:1px solid var(--line);padding-top:.85rem}
 .metric b{color:var(--ac);font-weight:600;letter-spacing:.12em}
+.proj-cta{display:flex;gap:.9rem;align-items:center;flex-wrap:wrap;margin-top:1rem;padding-top:.9rem}
+.proj.wide .metric{max-width:520px}
 
 /* ---------- HONORS ---------- */
 .awards{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
@@ -514,6 +517,23 @@ footer{border-top:1px solid var(--line);padding:2rem 0 2.6rem;color:var(--dim);f
         <p>以<b>旋转矩阵回归</b>取代直接回归欧拉角, 解决大姿态下的表示不连续, DMS 监控覆盖扩至 <b>±90°</b>;
           另以 3DMM 投影拟合获取深度监督, <b>MobileNetV2</b> 直接回归 68 点人脸三维关键点。</p>
         <div class="metric"><span>头姿覆盖</span><b>±90° · 3D-68PTS</b></div>
+      </div>
+
+      <div class="proj reveal wide" data-tilt>
+        <div class="num">07</div>
+        <span class="ft">GAME AI — MULTI-TASK RL × MoE</span>
+        <h3>Pixel Arena · 一个模型同时玩两个游戏</h3>
+        <p>用 <b>22,473 个参数</b>的 <b>Mixture-of-Experts</b> 策略网络, 同时学会「双足机器人赛跑」与「轮子失控的汽车驾驶」两个操作方式完全不同的游戏:
+          共享底层 + 4 个专家 + top-2 路由, 启发式行为克隆预热后接多任务 PPO。模型小到可以直接在浏览器里手写前向推理,
+          <b>零依赖实时对战</b>, 键盘可随时接管与模型同屏比赛; 路由权重逐帧可视化——两个游戏分别占据不同专家(90.3% / 99.8%)。
+          另训一个等参数量 MLP 做对照, MoE 在两个任务上都更优。</p>
+        <div class="metric"><span>机器人赛跑</span><b>88.1 m · 超启发式 10%</b></div>
+        <div class="metric"><span>汽车驾驶</span><b>544 m · 超启发式 266%</b></div>
+        <div class="metric"><span>模型体积</span><b>22,473 参数 · 118 KB</b></div>
+        <div class="proj-cta">
+          <a class="btn p2" href="game-ai/">打开在线 Demo</a>
+          <a class="lnk" href="game-ai/#router">看专家路由可视化</a>
+        </div>
       </div>
 
     </div>

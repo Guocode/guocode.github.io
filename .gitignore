@@ -1,1 +1,5 @@
 .workbuddy/
+__pycache__/
+*.pyc
+game-ai/train/ckpt/*.pt
+game-ai/train/verify_cases.json
