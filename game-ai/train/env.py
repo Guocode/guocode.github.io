@@ -58,6 +58,19 @@ FALL_ANG = 0.90
 W_NORM = 6.0
 A_SCALE = 2.0
 
+# 随机起伏地形：确定性伪随机函数（三个正弦叠加），Python / JS 逐位一致。
+# 幅度随里程渐入（前 TER_RAMP 米平缓起步），通过两条路径干扰平衡：
+#   1) 竖向加速度 ay 调制等效重力（过凸顶时短暂"失重"，凹坑时超重）
+#   2) 坡度直接产生俯仰力矩（上坡后仰、下坡前倾）
+TER_A = (0.090, 0.050, 0.022)      # 各分量振幅 m
+TER_F = (0.83, 2.17, 3.70)         # 空间频率 rad/m（波长 7.6 / 2.9 / 1.7 m）
+TER_PH = (0.0, 1.3, 4.1)           # 相位
+TER_RAMP = 40.0                    # 幅度渐入距离
+G_EFF = 9.8
+K_SLOPE = 1.0                      # 坡度 -> 俯仰力矩系数
+S_NORM = 0.20                      # 坡度观测归一化
+AY_NORM = 14.0                     # 竖向加速度观测归一化
+
 W_DIST = 1.0
 W_ALIVE = 0.005
 W_POSTURE = 0.03
@@ -99,6 +112,30 @@ CRASH_PENALTY = 1.0
 def track_curvature(s):
     """赛道曲率 κ(s)：确定性解析函数，JS 端用同一公式。"""
     return 0.018 * np.sin(0.035 * s) + 0.010 * np.sin(0.011 * s + 1.7)
+
+
+def terrain_h(x):
+    """独轮平衡的随机起伏地面高度（确定性，两端一致）。"""
+    d = np.minimum(x / TER_RAMP, 1.0)
+    return d * (TER_A[0] * np.sin(TER_F[0] * x)
+                + TER_A[1] * np.sin(TER_F[1] * x + TER_PH[1])
+                + TER_A[2] * np.sin(TER_F[2] * x + TER_PH[2]))
+
+
+def terrain_slope(x):
+    """地面坡度 dh/dx（解析导数）。"""
+    d = np.minimum(x / TER_RAMP, 1.0)
+    return d * (TER_A[0] * TER_F[0] * np.cos(TER_F[0] * x)
+                + TER_A[1] * TER_F[1] * np.cos(TER_F[1] * x + TER_PH[1])
+                + TER_A[2] * TER_F[2] * np.cos(TER_F[2] * x + TER_PH[2]))
+
+
+def terrain_curv(x):
+    """地面曲率 d²h/dx²（解析二阶导，凸为负）。"""
+    d = np.minimum(x / TER_RAMP, 1.0)
+    return -d * (TER_A[0] * TER_F[0] ** 2 * np.sin(TER_F[0] * x)
+                 + TER_A[1] * TER_F[1] ** 2 * np.sin(TER_F[1] * x + TER_PH[1])
+                 + TER_A[2] * TER_F[2] ** 2 * np.sin(TER_F[2] * x + TER_PH[2]))
 
 
 # ================================================================= 基类
@@ -175,10 +212,17 @@ class RunnerEnv(BaseEnv):
         ax = (vx - self.vx_prev) / (DT * SUBSTEPS)
         return vx, ax
 
+    def _terrain_state(self, vx, ax):
+        """跟随地形的竖向运动学：ay = curv*vx² + slope*ax。"""
+        slope = terrain_slope(self.x)
+        curv = terrain_curv(self.x)
+        ay = curv * vx * vx + slope * ax
+        return slope, ay
+
     def obs(self):
         vx, ax = self._speed_profile()
+        slope, ay = self._terrain_state(vx, ax)
         t = self.steps * (DT * SUBSTEPS)
-        ph = 2.0 * np.pi * JIT_FREQ * t
         b_active = (self.b_timer > 0).astype(np.float64)
         b_prog = np.where(self.b_timer > 0,
                           np.clip(1.0 - self.b_timer / np.maximum(self.b_dur, 1e-6), 0.0, 1.0),
@@ -195,8 +239,8 @@ class RunnerEnv(BaseEnv):
             b_prog,
             np.abs(self.th),
             self.th * self.w / W_NORM,
-            np.sin(ph),
-            np.cos(ph),
+            np.clip(slope / S_NORM, -1.0, 1.0),
+            np.clip(ay / AY_NORM, -1.0, 1.0),
             np.minimum(t / 60.0, 1.0),
         ], axis=1).astype(np.float32)
 
@@ -217,6 +261,7 @@ class RunnerEnv(BaseEnv):
         b_u = np.where(b_active, np.clip(1.0 - self.b_timer / np.maximum(self.b_dur, 1e-6), 0.0, 1.0), 0.0)
 
         vx, ax = self._speed_profile()
+        slope, ay = self._terrain_state(vx, ax)
         x0 = self.x.copy()
 
         for _ in range(SUBSTEPS):
@@ -226,8 +271,11 @@ class RunnerEnv(BaseEnv):
             tau_noise = NOISE_GAIN * self.ou * (0.35 + 0.65 * vx / V_MAX_RUN)
             tau_bump = np.where(b_active, self.b_dir * self.b_mag * BUMP_GAIN
                                 * np.sin(np.pi * np.clip(b_u, 0.0, 1.0)), 0.0)
-            tau = (K_INV * np.sin(self.th) + tau_cmd / INERTIA
-                   + tau_noise + tau_bump + ACC_COUPLE * ax - C_ANG * self.w)
+            # 地形耦合：竖向加速度调制等效重力 + 坡度直接力矩（上坡后仰 / 下坡前倾）
+            gfac = np.clip(1.0 + ay / G_EFF, -0.5, 2.5)
+            tau = (K_INV * gfac * np.sin(self.th) + tau_cmd / INERTIA
+                   + tau_noise + tau_bump + ACC_COUPLE * ax
+                   + K_SLOPE * G_EFF * slope - C_ANG * self.w)
             self.w += tau * DT
             self.th += self.w * DT
             self.x += vx * DT

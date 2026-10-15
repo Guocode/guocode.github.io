@@ -2,7 +2,7 @@
  * 调色板受限（16 色以内），只画矩形与粗线，配合放大形成像素颗粒感。
  */
 
-import { trackCurvature } from './env.js';
+import { trackCurvature, terrainH } from './env.js';
 
 export const PAL = {
   sky: '#141a2e', skyHi: '#1b2340',
@@ -63,31 +63,29 @@ export function drawRunner(ctx, env, W, H, t = 0) {
     fill(ctx, cx + 5, cy - 3, 9, 4, PAL.skyHi);
   }
 
-  // 地面
-  fill(ctx, 0, gy, W, H - gy, PAL.ground);
-  fill(ctx, 0, gy, W, 3, PAL.groundHi);
-
-  // 地面砖块（0.28 m 一块）
-  const bs = 0.28 * S;
-  const startI = Math.floor(camX / 0.28) - 1;
-  for (let i = startI; i < startI + Math.ceil(W / bs) + 3; i++) {
-    const bx = sx(i * 0.28);
-    if (bx < -bs || bx > W) continue;
-    fill(ctx, bx, gy + 3, bs - 1, 5, (i % 2 === 0) ? PAL.brick : PAL.brickHi);
-    if (i % 8 === 0) fill(ctx, bx, gy + 9, bs - 1, 3, PAL.brick);
+  // 起伏地面：逐列贴着地形高度填充（伪随机起伏，与环境物理同函数）
+  const COL = 2;
+  for (let px = 0; px < W; px += COL) {
+    const wx = camX + px / S;
+    const top = sy(terrainH(wx));
+    const brick = (Math.floor(wx / 0.28) % 2 === 0) ? PAL.brick : PAL.brickHi;
+    fill(ctx, px, top + 3, COL, H - top - 3, PAL.ground);
+    fill(ctx, px, top, COL, 3, PAL.groundHi);
+    fill(ctx, px, top + 3, COL, 5, brick);
   }
 
-  // 每 10 m 一个里程碑
+  // 每 10 m 一个里程碑（立在起伏地表上）
   const m0 = Math.floor(camX / 10) * 10;
   for (let m = m0; m < m0 + 60; m += 10) {
     const mx = sx(m);
     if (mx < -10 || mx > W + 10) continue;
-    fill(ctx, mx, gy - 16, 2, 16, PAL.dim);
-    fill(ctx, mx, gy - 20, 12, 5, (m % 50 === 0) ? PAL.warn : PAL.dim);
+    const mh = sy(terrainH(m));
+    fill(ctx, mx, mh - 16, 2, 16, PAL.dim);
+    fill(ctx, mx, mh - 20, 12, 5, (m % 50 === 0) ? PAL.warn : PAL.dim);
   }
 
-  // 机器人：驱动轮 + 躯干（倒立摆，无腿）
-  const wheelX = sx(env.x), wheelY = sy(RW);
+  // 机器人：驱动轮 + 躯干（倒立摆，无腿），轮子贴着起伏地表
+  const wheelX = sx(env.x), wheelY = sy(terrainH(env.x) + RW);
   const spin = env.x / RW;                    // 轮子转角（前进驱动）
 
   // 独轮（像素圆：外圈 + 辐条随前进旋转）

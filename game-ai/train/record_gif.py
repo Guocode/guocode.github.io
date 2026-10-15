@@ -16,7 +16,7 @@ import torch
 from PIL import Image, ImageDraw, ImageFont
 
 from env import (RunnerEnv, CarEnv, MAX_STEPS, ROAD_HALF,
-                 track_curvature)
+                 track_curvature, terrain_h)
 from model import MoEPolicy
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -82,25 +82,25 @@ def draw_runner(dr, env, ox, oy, w, color, color_hi, color_dk):
         bh = 16 + (i * 37) % 22
         dr.rectangle([bx, oy + gy - bh - 8, bx + 62, oy + gy],
                      fill=HILL if i % 2 else HILL_HI)
-    dr.rectangle([ox, oy + gy, ox + w, oy + CELL_H], fill=GROUND)
-    dr.rectangle([ox, oy + gy, ox + w, oy + gy + 3], fill=GROUND_HI)
-    bs = 0.28 * S
-    start_i = int(camx / 0.28) - 1
-    for i in range(start_i, start_i + int(w / bs) + 3):
-        bx = sx(i * 0.28)
-        if bx < ox - bs or bx > ox + w:
-            continue
-        dr.rectangle([bx, oy + gy + 3, bx + bs - 1, oy + gy + 8],
-                     fill=BRICK if i % 2 == 0 else BRICK_HI)
+    # 起伏地面：逐列贴着地形高度填充（与 render.js 同函数）
+    col = 2
+    for px in range(0, int(w) + col, col):
+        wx = camx + px / S
+        top = sy(terrain_h(wx))
+        brick = BRICK if int(wx / 0.28) % 2 == 0 else BRICK_HI
+        dr.rectangle([ox + px, top + 3, ox + px + col, oy + CELL_H], fill=GROUND)
+        dr.rectangle([ox + px, top, ox + px + col, top + 3], fill=GROUND_HI)
+        dr.rectangle([ox + px, top + 3, ox + px + col, top + 8], fill=brick)
     m0 = int(camx / 10) * 10
     for m in range(m0, m0 + 60, 10):
         mx = sx(m)
         if ox - 10 < mx < ox + w + 10:
-            dr.rectangle([mx, oy + gy - 14, mx + 2, oy + gy], fill=DIM)
-            dr.rectangle([mx, oy + gy - 18, mx + 10, oy + gy - 14],
+            mh = sy(terrain_h(m))
+            dr.rectangle([mx, mh - 14, mx + 2, mh], fill=DIM)
+            dr.rectangle([mx, mh - 18, mx + 10, mh - 14],
                          fill=WARN if m % 50 == 0 else DIM)
 
-    wx, wy = sx(env.x[0]), sy(RW)
+    wx, wy = sx(env.x[0]), sy(terrain_h(env.x[0]) + RW)
     R = RW * S
     th = env.th[0]
 

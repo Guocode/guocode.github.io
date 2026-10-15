@@ -22,6 +22,32 @@ const OU_THETA = 0.8, OU_SIGMA = 2.2, NOISE_GAIN = 0.9, N_SCALE = 3.0;
 const BUMP_P = 0.008, BUMP_T_MIN = 0.15, BUMP_T_MAX = 0.45, BUMP_GAIN = 2.6;
 const T_SOFT = 1.3, T_HARD = 2.6, FALL_ANG = 0.90, W_NORM = 6.0, A_SCALE = 2.0;
 
+// 随机起伏地形（确定性伪随机函数，与 train/env.py 逐位一致）
+const TER_A = [0.090, 0.050, 0.022];
+const TER_F = [0.83, 2.17, 3.70];
+const TER_PH = [0.0, 1.3, 4.1];
+const TER_RAMP = 40.0;
+const G_EFF = 9.8, K_SLOPE = 1.0, S_NORM = 0.20, AY_NORM = 14.0;
+
+export function terrainH(x) {
+  const d = Math.min(x / TER_RAMP, 1.0);
+  return d * (TER_A[0] * Math.sin(TER_F[0] * x)
+            + TER_A[1] * Math.sin(TER_F[1] * x + TER_PH[1])
+            + TER_A[2] * Math.sin(TER_F[2] * x + TER_PH[2]));
+}
+export function terrainSlope(x) {
+  const d = Math.min(x / TER_RAMP, 1.0);
+  return d * (TER_A[0] * TER_F[0] * Math.cos(TER_F[0] * x)
+            + TER_A[1] * TER_F[1] * Math.cos(TER_F[1] * x + TER_PH[1])
+            + TER_A[2] * TER_F[2] * Math.cos(TER_F[2] * x + TER_PH[2]));
+}
+export function terrainCurv(x) {
+  const d = Math.min(x / TER_RAMP, 1.0);
+  return -d * (TER_A[0] * TER_F[0] * TER_F[0] * Math.sin(TER_F[0] * x)
+             + TER_A[1] * TER_F[1] * TER_F[1] * Math.sin(TER_F[1] * x + TER_PH[1])
+             + TER_A[2] * TER_F[2] * TER_F[2] * Math.sin(TER_F[2] * x + TER_PH[2]));
+}
+
 // ------------------------------------------------- Game 1 CAR（无限公路）
 const V_START_CAR = 8.0, V_RAMP = 0.004, V_MAX_CAR = 26.0, K_RELAX = 0.5;
 const STEER_RATE = 2.4, STEER_HARD = 2.0, STEER_MAX = 0.55, STEER_RETURN = 2.0;
@@ -88,10 +114,11 @@ export class RunnerEnv {
 
   obs() {
     const { vx, ax, t } = this._profile();
+    const slope = terrainSlope(this.x);
+    const ay = terrainCurv(this.x) * vx * vx + slope * ax;
     const o = new Float32Array(N_OBS);
     const bAct = this.bTimer > 0 ? 1 : 0;
     const bProg = bAct ? clamp(1.0 - this.bTimer / Math.max(this.bDur, 1e-6), 0, 1) : 0.0;
-    const ph = 2.0 * Math.PI * JIT_FREQ * t;
     o[0] = Math.sin(this.th);
     o[1] = Math.cos(this.th);
     o[2] = this.w / W_NORM;
@@ -103,8 +130,8 @@ export class RunnerEnv {
     o[8] = bProg;
     o[9] = Math.abs(this.th);
     o[10] = this.th * this.w / W_NORM;
-    o[11] = Math.sin(ph);
-    o[12] = Math.cos(ph);
+    o[11] = clamp(slope / S_NORM, -1.0, 1.0);
+    o[12] = clamp(ay / AY_NORM, -1.0, 1.0);
     o[13] = Math.min(t / 60.0, 1.0);
     return o;
   }
@@ -125,6 +152,8 @@ export class RunnerEnv {
     const bU = bAct ? clamp(1.0 - this.bTimer / Math.max(this.bDur, 1e-6), 0, 1) : 0.0;
 
     const { vx, ax } = this._profile();
+    const slope = terrainSlope(this.x);
+    const ay = terrainCurv(this.x) * vx * vx + slope * ax;
     const x0 = this.x;
 
     for (let k = 0; k < SUBSTEPS; k++) {
@@ -132,8 +161,11 @@ export class RunnerEnv {
       this.ou += (-OU_THETA * this.ou * DT + OU_SIGMA * Math.sqrt(DT) * this.gauss());
       const tauNoise = NOISE_GAIN * this.ou * (0.35 + 0.65 * vx / V_MAX_RUN);
       const tauBump = bAct ? this.bDir * this.bMag * BUMP_GAIN * Math.sin(Math.PI * bU) : 0.0;
-      const tau = K_INV * Math.sin(this.th) + tauCmd / INERTIA
-                + tauNoise + tauBump + ACC_COUPLE * ax - C_ANG * this.w;
+      // 地形耦合：竖向加速度调制等效重力 + 坡度直接力矩（上坡后仰 / 下坡前倾）
+      const gfac = clamp(1.0 + ay / G_EFF, -0.5, 2.5);
+      const tau = K_INV * gfac * Math.sin(this.th) + tauCmd / INERTIA
+                + tauNoise + tauBump + ACC_COUPLE * ax
+                + K_SLOPE * G_EFF * slope - C_ANG * this.w;
       this.w += tau * DT;
       this.th += this.w * DT;
       this.x += vx * DT;

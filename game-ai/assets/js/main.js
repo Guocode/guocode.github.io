@@ -1,6 +1,6 @@
 /* 页面编排：两个游戏共用同一个 MoE 模型，实时可视化专家路由。 */
 
-import { RunnerEnv, CarEnv, MAX_STEPS, ACTION_NAMES, KEY_HINTS } from './env.js';
+import { RunnerEnv, CarEnv, ACTION_NAMES, KEY_HINTS } from './env.js';
 import { drawRunner, drawCar } from './render.js';
 import { loadPolicy } from './moe.js';
 import { METRICS } from './metrics.js';
@@ -44,13 +44,14 @@ class Game {
       gate = Array.from(r.gate);
       this.lastGate = gate;
     } else {
+      // 人类模式：未按键 = 零力矩空转（平衡游戏里站着不动也会摔）
       action = humanAction !== undefined ? humanAction : -1;
-      if (action < 0) return;          // 人类未按任何键：空转
       this.lastGate = [0, 0, 0, 0];
     }
     this.lastAction = action;
     const out = this.env.step(action);
-    if (this.env.x > this.best) this.best = this.env.x;
+    const dist = this.taskId === 0 ? this.env.x : this.env.s;
+    if (dist > this.best) this.best = dist;
     if (out.done) {
       this.finished = true;
       this.finishInfo = out.fell ? (this.taskId === 0 ? '失去平衡摔倒' : '冲出路面')
