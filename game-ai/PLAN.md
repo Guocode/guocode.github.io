@@ -78,6 +78,19 @@ obs(14) + task one-hot(2)
 
 见页面「04 / 架构消融」表格（由 metrics.js 自动生成）。
 
+### 图像输入对照实验（8 seed × 16 回合平均）
+
+| 策略 | 观测 | 参数量 | 独轮平衡 | 无限公路 |
+| --- | --- | --- | --- | --- |
+| MoE（状态向量） | 14 维标量 | 22,473 | **274.4 m**（fail 0%） | **500.4 m**（fail 0%） |
+| CNN + MoE（像素） | 3×40×64 RGB | 44,425 | 161.9 m（fail 78%） | 482.6 m（fail 0%） |
+
+实现（`train/frames.py` + `train/model_img.py` + `train/train_img.py`）：
+- 帧渲染：NumPy 向量化，car 透视投影 `px = PX_K/(z+PX_Z0)` + 闭式曲率积分 `_kint2`（∫κ(s+u)·u du），runner 侧视地形轮廓；R 通道 = 路面/地形，G 通道 = 中线虚线 + 车体精灵，B 通道 = 事件侧带 + 速度条；成本 0.3–0.8 ms/批（CPU 可忽略）
+- 网络：conv 3→8→16→16（步幅 2）→ 640+2(任务 one-hot) → fc48 → 同款 router / 4 experts / actor / critic
+- 训练：BC 预热 12000 样本 4 epochs（acc 0.44→0.67）+ PPO 300 updates，纯 CPU 27 分钟
+- 结论：像素输入完全可行——公路任务约 100 updates 收敛到 480+ m（与向量版同档）；独轮平衡前 250 updates 几乎原地踏步（实时俯仰/坡度等精细标量被 40×64 低分辨率压缩），最终 fail 78%。**同样的训练预算下 14 维向量两任务稳赢：观测形式本身就是小模型最大的先验**。
+
 ---
 
 ## 6. v2 设计踩坑
@@ -146,6 +159,9 @@ game-ai/
     ├── env.py              两个游戏的向量化环境 + 启发式基线
     ├── model.py            MoEPolicy / MLPPolicy（对照）
     ├── train_moe.py        多任务 PPO（--arch moe|mlp）
+    ├── frames.py           像素帧渲染器（图像输入实验，NumPy 向量化）
+    ├── model_img.py        CNN 编码器 + MoE（图像输入实验）
+    ├── train_img.py        图像输入版训练流程
     ├── export_onnx.py      导出权重 / ONNX / 页面指标
     ├── record_gif.py       录制 AI vs HUMAN 对战回放 GIF
     ├── verify.py           生成跨端验证参考数据
@@ -160,6 +176,7 @@ game-ai/
 pip install torch numpy
 python train/train_moe.py --updates 500 --lr 1.5e-4          # MoE 主训练（CPU）
 python train/train_moe.py --arch mlp --updates 500           # 对照实验（可选）
+python train/train_img.py --updates 300 --lr 3e-4            # 图像输入对照（可选）
 python train/export_onnx.py                                 # 导出权重与页面指标
 python train/record_gif.py                                 # AI vs HUMAN 回放 GIF
 python train/verify.py && node tools/check_js.mjs           # 跨端一致性
@@ -173,6 +190,7 @@ cd game-ai && python -m http.server 8090                     # 访问 /game-ai/
 ## 10. 后续方向
 
 * [x] 端到端记录人类 vs AI 对战回放 GIF（v1 完成，v2 已重录）
+* [x] 图像输入对照实验（CNN 3×40×64 + MoE：公路与向量版同档，平衡明显落后——向量观测胜出）
 * [ ] 第三个游戏接入 MoE（专家池扩展，观察路由是否自然分化）
 * [ ] 课程学习：平衡噪声 / 事件概率随回合递增
 * [ ] 策略蒸馏：把 4 个专家蒸馏回单网络，对比压缩率与性能损失

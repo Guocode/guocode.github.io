@@ -379,9 +379,55 @@ footer .row{display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap}
     </p>
   </section>
 
-  <!-- ============================================ 05 TRAINING -->
+  <!-- ============================================ 05 IMG EXPERIMENT -->
+  <section id="imgexp">
+    <h2>05 / 图像输入实验</h2>
+    <p class="sec-lede">
+      14 维状态向量是不是「作弊」？我另训了一个真正用<b style="color:var(--txt)">像素画面</b>做观测的版本：
+      NumPy 向量化渲染器把两个游戏各画成 3×40×64 的 RGB 帧（0.3–0.8 ms/批，零依赖），
+      CNN 编码器（conv 3→8→16→16，步幅 2）接同款 MoE 头，共 44,425 参数；
+      行为克隆预热 + PPO 流程与向量版完全一致，纯 CPU 训 300 次 updates（27 分钟）。
+    </p>
+    <table>
+      <thead>
+        <tr>
+          <th>策略</th>
+          <th>观测</th>
+          <th style="text-align:right">参数量</th>
+          <th style="text-align:right">独轮平衡</th>
+          <th style="text-align:right">无限公路</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>MoE（状态向量）</td>
+          <td>14 维标量</td>
+          <td style="text-align:right">22,473</td>
+          <td style="text-align:right"><b style="color:var(--txt)">274.4 m</b>（摔倒 0%）</td>
+          <td style="text-align:right"><b style="color:var(--txt)">500.4 m</b>（失败 0%）</td>
+        </tr>
+        <tr>
+          <td>CNN + MoE（像素）</td>
+          <td>3×40×64 RGB 帧</td>
+          <td style="text-align:right">44,425</td>
+          <td style="text-align:right">161.9 m（摔倒 78%）</td>
+          <td style="text-align:right">482.6 m（失败 0%）</td>
+        </tr>
+      </tbody>
+    </table>
+    <p style="margin-top:14px">
+      结论很清晰：<b style="color:var(--txt)">像素输入完全可行，但明显更难</b>。
+      公路任务约 100 次 updates 就收敛到 480+ m（与向量版同档）——路面、车道线、事件侧带在低分辨率下仍可分辨；
+      独轮平衡则学得非常吃力：实时俯仰角、地形坡度这类精细标量被压缩进 40×64 像素后，
+      前 250 次 updates 几乎原地踏步，之后才缓慢爬升且方差极大。
+      同样的训练预算下，14 维向量两个任务都稳赢——对小模型而言，观测形式本身就是最大的先验，
+      「看画面学」是更真实的设定，但低维信息才是小模型能吃透的表示。
+    </p>
+  </section>
+
+  <!-- ============================================ 06 TRAINING -->
   <section id="training">
-    <h2>05 / 训练过程</h2>
+    <h2>06 / 训练过程</h2>
     <p class="sec-lede">
       多任务 PPO，两个环境各 32 个并行实例，共 500 次更新（纯 CPU）。
       平衡与车道保持这类连续微调靠随机探索很难起步，所以先用启发式做行为克隆预热，再交给 PPO 微调。
@@ -394,9 +440,9 @@ footer .row{display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap}
     </p>
   </section>
 
-  <!-- ============================================ 05 ARCH -->
+  <!-- ============================================ 07 ARCH -->
   <section id="arch">
-    <h2>06 / 模型架构</h2>
+    <h2>07 / 模型架构</h2>
     <p class="sec-lede">小到可以直接在 JS 里手写前向：不需要 wasm 运行时，页面加载完就能玩。</p>
     <div class="arch-box">
       <svg viewBox="0 0 680 300" xmlns="http://www.w3.org/2000/svg">
@@ -472,7 +518,7 @@ footer .row{display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap}
 
   <!-- ============================================ 06 DESIGN -->
   <section id="design">
-    <h2>07 / 两个游戏怎么设计的</h2>
+    <h2>08 / 两个游戏怎么设计的</h2>
     <p class="sec-lede">两个环境都是自己写的轻量物理，Python（训练）与 JavaScript（浏览器）各实现一份，共用同一套常量和积分公式。</p>
     <div class="cards">
       <div class="card">
@@ -523,7 +569,7 @@ footer .row{display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap}
 
   <!-- ============================================ 07 REPRODUCE -->
   <section id="reproduce">
-    <h2>08 / 复现</h2>
+    <h2>09 / 复现</h2>
     <p class="sec-lede">纯 CPU，单台笔记本训完两个游戏（MoE 主训练 + MLP 对照）。</p>
 <pre><b># 1. 训练（行为克隆预热 + 多任务 PPO）</b>
 pip install torch numpy
@@ -535,7 +581,10 @@ python train/export_onnx.py
 
 <b># 3. 生成 AI vs HUMAN 对战回放 GIF</b>
 pip install pillow
-python train/record_gif.py</pre>
+python train/record_gif.py
+
+<b># 4. 图像输入对照实验（CNN + MoE，可选）</b>
+python train/train_img.py --updates 300 --lr 3e-4</pre>
 
     <h3>目录结构</h3>
 <pre>game-ai/
@@ -551,6 +600,9 @@ python train/record_gif.py</pre>
     ├── env.py              两个游戏的向量化环境 + 启发式基线
     ├── model.py            MoE 策略 / MLP 对照
     ├── train_moe.py        多任务 PPO
+    ├── frames.py           像素帧渲染器（图像输入实验，NumPy 向量化）
+    ├── model_img.py        CNN 编码器 + MoE（图像输入实验）
+    ├── train_img.py        图像输入版训练流程
     └── export_onnx.py      导出与评估</pre>
   </section>
 
