@@ -240,6 +240,8 @@ h2 .side{font:500 .68rem/1.5 var(--mono);color:var(--dim);letter-spacing:.3em;wh
 /* ---------- PROJECTS ---------- */
 .bento{display:grid;grid-template-columns:repeat(2,1fr);gap:18px}
 @media(max-width:680px){.bento{grid-template-columns:1fr}}
+.proj.wide{grid-column:1/-1}
+a.proj{text-decoration:none;color:inherit;cursor:pointer;display:block}
 .proj{border:1px solid var(--line);border-radius:var(--r);background:var(--surface);padding:1.6rem 1.6rem 1.45rem;position:relative;overflow:hidden;
   transition:transform .35s,border-color .35s,box-shadow .35s;will-change:transform}
 .proj::before{content:'';position:absolute;inset:0;border-radius:inherit;padding:1px;opacity:0;transition:opacity .45s;
@@ -329,6 +331,7 @@ footer{border-top:1px solid var(--line);padding:2rem 0 2.6rem;color:var(--dim);f
       <a href="#honors"><sup>04</sup>荣誉</a>
       <a href="#skills"><sup>05</sup>技能</a>
       <a href="#contact"><sup>06</sup>联系</a>
+      <a href="game-ai/"><sup>07</sup>游戏 AI</a>
     </div>
   </div>
 </nav>
@@ -515,6 +518,15 @@ footer{border-top:1px solid var(--line);padding:2rem 0 2.6rem;color:var(--dim);f
           另以 3DMM 投影拟合获取深度监督, <b>MobileNetV2</b> 直接回归 68 点人脸三维关键点。</p>
         <div class="metric"><span>头姿覆盖</span><b>±90° · 3D-68PTS</b></div>
       </div>
+
+      <a class="proj wide reveal" data-tilt href="game-ai/" aria-label="打开 Pixel Arena 游戏 AI 页面">
+        <div class="num">07</div>
+        <span class="ft">PLAYABLE — PIXEL ARENA</span>
+        <h3>游戏 AI · 一个 MoE 策略同时玩两个游戏 <span style="color:var(--ac)">↗</span></h3>
+        <p><b>22,473 参数</b>混合专家策略(4 专家 top-2 路由), 同时驾驶<b>双足赛跑机器人</b>与<b>失控汽车</b>——
+          浏览器内手写前向推理<b>零依赖</b>运行, 附训练曲线、MoE vs MLP 消融对照与 AI vs HUMAN 同 seed 对战回放, 全流程可复现。</p>
+        <div class="metric"><span>点击进入</span><b>PIXEL ARENA · PLAY IN BROWSER →</b></div>
+      </a>
 
     </div>
   </div>
