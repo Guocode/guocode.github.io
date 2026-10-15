@@ -2,7 +2,9 @@
  * 调色板受限（16 色以内），只画矩形与粗线，配合放大形成像素颗粒感。
  */
 
-import { trackCurvature, terrainH } from './env.js';
+import { trackCurvature, terrainH, CONST } from './env.js';
+
+const ROAD_HALF = CONST.ROAD_HALF;
 
 export const PAL = {
   sky: '#141a2e', skyHi: '#1b2340',
@@ -128,6 +130,30 @@ export function drawRunner(ctx, env, W, H, t = 0) {
 }
 
 /* ------------------------------------------------------------ Game 1 汽车驾驶 */
+// 梯形面（路段 / 路缘石通用）
+function trap(ctx, x0L, x0R, y0, x1L, x1R, y1, col) {
+  ctx.fillStyle = col;
+  ctx.beginPath();
+  ctx.moveTo(x0L, y0);
+  ctx.lineTo(x0R, y0);
+  ctx.lineTo(x1R, y1);
+  ctx.lineTo(x1L, y1);
+  ctx.closePath();
+  ctx.fill();
+}
+
+// 水平箭头（像素风）：指出"车正被往哪边拽"
+function hArrow(ctx, cx, cy, dir, col) {
+  fill(ctx, cx - 7, cy - 1, 14, 2, col);
+  if (dir > 0) {
+    thickLine(ctx, cx + 1, cy - 4, cx + 7, cy, 2, col);
+    thickLine(ctx, cx + 1, cy + 4, cx + 7, cy, 2, col);
+  } else {
+    thickLine(ctx, cx - 1, cy - 4, cx - 7, cy, 2, col);
+    thickLine(ctx, cx - 1, cy + 4, cx - 7, cy, 2, col);
+  }
+}
+
 export function drawCar(ctx, env, W, H, t = 0) {
   const HORIZON = Math.round(H * 0.34);
   const FOCAL = 150;
@@ -147,7 +173,8 @@ export function drawCar(ctx, env, W, H, t = 0) {
   // 草地
   fill(ctx, 0, HORIZON, W, H - HORIZON, PAL.grass);
 
-  // 由远及近画路段
+  // 由远及近画路段。条纹世界锚定（随里程向玩家滚动，不再固定在屏幕上）：
+  // 红白路缘石 = 碰撞边界，压线即冲出路面
   let prev = null;
   for (let i = SEG; i >= 1; i--) {
     const z = i * DZ;
@@ -157,41 +184,50 @@ export function drawCar(ctx, env, W, H, t = 0) {
     let off = 0;
     for (let k = 1; k <= i; k++) off += trackCurvature(env.s + k * DZ) * DZ * (k * DZ) * 0.5;
     const cx = W / 2 + (off - env.d) * scale;
-    const halfW = 3.4 * scale;
+    const halfW = ROAD_HALF * scale;
     if (prev) {
-      // 路面梯形
-      ctx.fillStyle = (i % 2 === 0) ? PAL.road : PAL.roadHi;
-      ctx.beginPath();
-      ctx.moveTo(prev.cx - prev.halfW, prev.y);
-      ctx.lineTo(prev.cx + prev.halfW, prev.y);
-      ctx.lineTo(cx + halfW, y);
-      ctx.lineTo(cx - halfW, y);
-      ctx.closePath();
-      ctx.fill();
-      // 路肩条纹
-      if (i % 2 === 0) {
-        fill(ctx, prev.cx - prev.halfW - 2, prev.y, 3, Math.max(1, y - prev.y), PAL.stripe);
-        fill(ctx, prev.cx + prev.halfW, prev.y, 3, Math.max(1, y - prev.y), PAL.stripe);
+      const ws = env.s + i * DZ;                      // 本段世界里程
+      // 路面
+      trap(ctx, prev.cx - prev.halfW, prev.cx + prev.halfW, prev.y,
+           cx - halfW, cx + halfW, y,
+           Math.floor(ws / DZ) % 2 === 0 ? PAL.road : PAL.roadHi);
+      // 路缘石（碰撞边界）：路宽尽头，红白相间
+      const curbW = Math.max(1.5, 0.55 * scale);
+      const curbCol = Math.floor(ws / 2.6) % 2 === 0 ? PAL.danger : PAL.stripe;
+      trap(ctx, prev.cx - prev.halfW - curbW, prev.cx - prev.halfW, prev.y,
+           cx - halfW - curbW, cx - halfW, y, curbCol);
+      trap(ctx, prev.cx + prev.halfW, prev.cx + prev.halfW + curbW, prev.y,
+           cx + halfW, cx + halfW + curbW, y, curbCol);
+      // 中线虚线（世界锚定，6.4 m 周期）
+      if (Math.floor(ws / 6.4) % 2 === 0) {
+        fill(ctx, cx - 1, y, 2, Math.max(1, y - prev.y), PAL.stripeDim);
       }
-      // 中线
-      if (i % 4 < 2) fill(ctx, cx - 1, y, 2, Math.max(1, y - prev.y), PAL.stripeDim);
     }
     prev = { cx, y, halfW };
   }
 
-  // 事件指示：打滑（黄色脉冲）/ 爆胎（红色脉冲 + 更强）
-  const active = env.evTimer > 0;
-  const isBlow = env.evType > 0;
-  if (active) {
-    const a = (isBlow ? 0.14 : 0.09) + 0.10 * Math.sin(t * 0.5);
-    ctx.fillStyle = isBlow ? `rgba(255,107,107,${a})` : `rgba(255,209,102,${a})`;
-    ctx.fillRect(0, 0, W, H);
+  // 远景雾（静态，增强纵深）
+  for (let r = 0; r < 6; r++) {
+    ctx.fillStyle = `rgba(20,26,46,${(0.26 - r * 0.042).toFixed(3)})`;
+    ctx.fillRect(0, HORIZON + r * 2, W, 2);
   }
 
-  // 车（第三人称后视）
+  // 临边警示：靠近路缘的一侧亮红色边缘（静态强度，随接近程度加深，不闪烁）
+  const edgeN = Math.min(Math.abs(env.d) / ROAD_HALF, 1.2);
+  if (edgeN > 0.6) {
+    const p = Math.min((edgeN - 0.6) / 0.4, 1);
+    ctx.fillStyle = `rgba(255,80,80,${(0.05 + 0.22 * p).toFixed(3)})`;
+    if (env.d > 0) fill(ctx, W - 30, HORIZON, 30, H - HORIZON, ctx.fillStyle);
+    else fill(ctx, 0, HORIZON, 30, H - HORIZON, ctx.fillStyle);
+  }
+
+  // 事件反馈：不再全屏闪烁。改为顶部色条 + 车旁方向箭头（指明被拽方向，反向打盘修正）
+  const active = env.evTimer > 0;
+  const isBlow = env.evType > 0;
   const carY = H - 30;
-  const shakeAmp = isBlow ? 3 : 2;
-  const shake = active ? Math.round(Math.sin(t * (isBlow ? 1.3 : 0.9)) * shakeAmp) : 0;
+
+  // 车（第三人称后视）
+  const shake = active ? Math.sin(t * 0.55) * (isBlow ? 1.6 : 1.0) : 0;
   const carX = W / 2 - env.d * (FOCAL / (2.5 * DZ)) * 0.55 + shake;
   const tilt = env.steer * 0.25 + (active ? env.evDir * (isBlow ? 0.14 : 0.10) : 0);
   ctx.save();
@@ -204,11 +240,19 @@ export function drawCar(ctx, env, W, H, t = 0) {
   fill(ctx, 9, 2, 6, 6, PAL.carDark);             // 右轮
   fill(ctx, -13, -4, 4, 3, PAL.danger);           // 尾灯
   fill(ctx, 9, -4, 4, 3, PAL.danger);
-  if (isBlow) fill(ctx, -15, 2, 6, 6, PAL.sky);   // 爆胎：左前轮瘪了（黑圈）
+  if (active && isBlow) {                         // 爆胎轮随方向瘪掉
+    if (env.evDir < 0) fill(ctx, -15, 2, 6, 6, PAL.sky);
+    else fill(ctx, 9, 2, 6, 6, PAL.sky);
+  }
   ctx.restore();
 
-  // 事件粒子：打滑 = 白色胎烟（贴地喷），爆胎 = 深色碎屑上抛
   if (active) {
+    // 顶部事件色条（静态）
+    fill(ctx, 0, 0, W, 3, isBlow ? PAL.danger : PAL.warn);
+    // 方向箭头（车上方 22px）：指向被拽方向
+    hArrow(ctx, Math.round(carX), carY - 26, env.evDir > 0 ? 1 : -1,
+           isBlow ? PAL.danger : PAL.warn);
+    // 事件粒子：打滑 = 白色胎烟（贴地喷），爆胎 = 深色碎屑上抛
     const col = isBlow ? (i) => `rgba(255,107,107,${0.55 - i * 0.09})`
                        : (i) => `rgba(223,230,255,${0.45 - i * 0.07})`;
     for (let i = 0; i < 6; i++) {

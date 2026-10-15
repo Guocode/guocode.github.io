@@ -53,10 +53,17 @@ const V_START_CAR = 8.0, V_RAMP = 0.004, V_MAX_CAR = 26.0, K_RELAX = 0.5;
 const STEER_RATE = 2.4, STEER_HARD = 2.0, STEER_MAX = 0.55, STEER_RETURN = 2.0;
 const WHEELBASE = 2.6, ROAD_HALF = 3.4, KAPPA_SCALE = 80.0;
 const LOOKAHEAD = [0.0, 12.0, 28.0, 50.0];
-const SKID_P = 0.007, SKID_T_MIN = 0.6, SKID_T_MAX = 1.6;
+// 事件机制 v3：打滑由转弯角载荷触发（过猛甩尾沿转向方向），爆胎概率随车速；
+// 推力为冲量式衰减包络；事件结束后有冷却期
+const SKID_P = 0.004, SKID_LOAD_GAIN = 2.0;
+const SKID_T_MIN = 0.6, SKID_T_MAX = 1.4;
 const SKID_RATE = 0.55, SKID_LAT = 0.90, SKID_GRIP = 0.45;
-const BLOW_P = 0.003, BLOW_T_MIN = 0.8, BLOW_T_MAX = 1.8;
+const SKID_DIR_TH = 0.15;
+const BLOW_P = 0.0025, BLOW_V_GAIN = 1.5;
+const BLOW_T_MIN = 0.8, BLOW_T_MAX = 1.8;
 const BLOW_RATE = 1.05, BLOW_LAT = 1.60, BLOW_GRIP = 0.60, BLOW_VDROP = 0.80;
+const BLOW_CRUISE = 0.75;      // 爆胎期间巡航目标折减
+const EV_COOLDOWN = 2.0;       // 事件冷却期（s）
 const D_DIFF_SCALE = 0.05;
 
 export function trackCurvature(s) {
@@ -199,7 +206,8 @@ export class CarEnv {
     this.psi = (this.rng() - 0.5) * 0.1;
     this.v = V_START_CAR;
     this.steer = 0.0;
-    this.evTimer = 0.0; this.evDir = 0.0; this.evMag = 0.0; this.evType = 0.0;
+    this.evTimer = 0.0; this.evDur = 1.0; this.evDir = 0.0; this.evMag = 0.0; this.evType = 0.0;
+    this.evCool = 0.0;
     this.done = false;
     this.steps = 0;
     this.fell = false;
@@ -236,26 +244,38 @@ export class CarEnv {
     this.steer = clamp(this.steer + (steerIn - STEER_RETURN * this.steer * (steerIn === 0 ? 1 : 0)) * DT * SUBSTEPS,
                        -STEER_MAX, STEER_MAX);
 
-    // 随机事件（打滑 / 爆胎）。随机数消耗顺序与 Python 端保持一致：
-    // r1 触发, r2 时长, r3 方向, r4 强度, r5 类型
+    // 事件触发：打滑看转弯角载荷（驾驶行为后果），爆胎看车速（高速 hazard）。
+    // 随机数消耗顺序与 Python 端一致：r1 触发, r2 时长, r3 方向回退, r4 强度, r5 类型
     const r1 = this.rng(), r2 = this.rng(), r3 = this.rng(), r4 = this.rng(), r5 = this.rng();
-    const idle = this.evTimer <= 0;
-    const fire = idle && r1 < SKID_P + BLOW_P;
+    const idle = this.evTimer <= 0 && this.evCool <= 0;
+    const load = clamp(Math.abs(this.steer) / STEER_MAX, 0, 1) * clamp(this.v / V_MAX_CAR, 0, 1);
+    const pSkid = SKID_P * (0.3 + SKID_LOAD_GAIN * load);
+    const pBlow = BLOW_P * (0.5 + BLOW_V_GAIN * this.v / V_MAX_CAR);
+    const fire = idle && r1 < pSkid + pBlow;
     let vDrop = 1.0;
     if (fire) {
-      const isBlow = r5 < BLOW_P / (SKID_P + BLOW_P);
+      const isBlow = r5 < pBlow / (pSkid + pBlow);
       this.evType = isBlow ? 1.0 : 0.0;
       this.evTimer = isBlow ? BLOW_T_MIN + r2 * (BLOW_T_MAX - BLOW_T_MIN)
                             : SKID_T_MIN + r2 * (SKID_T_MAX - SKID_T_MIN);
-      this.evDir = r3 < 0.5 ? -1.0 : 1.0;
+      this.evDur = this.evTimer;
+      // 甩尾方向：转弯中沿当前转向方向继续旋转（车尾向外甩），接近直行则随机
+      const rndDir = r3 < 0.5 ? -1.0 : 1.0;
+      this.evDir = isBlow ? rndDir
+                          : (Math.abs(this.steer) > SKID_DIR_TH ? Math.sign(this.steer) : rndDir);
       this.evMag = isBlow ? 0.7 + r4 * 0.3 : 0.4 + r4 * 0.6;
+      this.evCool = this.evTimer + EV_COOLDOWN;
       if (isBlow) vDrop = BLOW_VDROP;
     }
     const active = this.evTimer > 0;
     this.evTimer = Math.max(this.evTimer - DT * SUBSTEPS, 0.0);
+    this.evCool = Math.max(this.evCool - DT * SUBSTEPS, 0.0);
+    // 冲量式衰减包络：刚触发时推力最大，随剩余时间线性衰减到 0
+    const envU = clamp(this.evTimer / Math.max(this.evDur, 1e-6), 0, 1);
     const evRate = this.evType > 0 ? BLOW_RATE : SKID_RATE;
     const evLat = this.evType > 0 ? BLOW_LAT : SKID_LAT;
     const evGrip = this.evType > 0 ? BLOW_GRIP : SKID_GRIP;
+    const push = active ? this.evDir * this.evMag * envU : 0.0;
 
     this.v *= vDrop;
 
@@ -263,15 +283,14 @@ export class CarEnv {
     this.dPrev = this.d;
     for (let k = 0; k < SUBSTEPS; k++) {
       const kap = trackCurvature(this.s);
-      const cruise = this._cruise();
+      // 爆胎期间巡航目标折减：掉速不会立刻弛豫回去，恢复更慢
+      const cruise = this._cruise() * (active && this.evType > 0 ? BLOW_CRUISE : 1.0);
       this.v = clamp(this.v + (cruise - this.v) * K_RELAX * DT, 0.0, V_MAX_CAR);
       const authority = active ? evGrip : 1.0;
-      let yaw = this.v * Math.tan(this.steer) * authority / WHEELBASE - this.v * kap;
-      if (active) yaw += this.evDir * this.evMag * evRate;
+      const yaw = this.v * Math.tan(this.steer) * authority / WHEELBASE - this.v * kap
+                + push * evRate;
       this.psi = clamp(this.psi + yaw * DT, -1.2, 1.2);
-      let lat = this.v * Math.sin(this.psi);
-      if (active) lat += this.evDir * this.evMag * evLat;
-      this.d += lat * DT;
+      this.d += (this.v * Math.sin(this.psi) + push * evLat) * DT;
       this.s += this.v * Math.cos(this.psi) * DT;
     }
 

@@ -54,7 +54,7 @@ console.log('runner balance    mean %s  std %s  [%s, %s]',
   r.mean.toFixed(2), r.std.toFixed(2), r.min.toFixed(2), r.max.toFixed(2));
 console.log('car lane-keeping  mean %s  std %s  [%s, %s]',
   c.mean.toFixed(2), c.std.toFixed(2), c.min.toFixed(2), c.max.toFixed(2));
-console.log('  (python ref: runner 274.40±0.00 | car 300.56±194.73)');
+console.log('  (python ref: runner 274.40±0.00 | car 508.66±8.22)');
 
 // ---------------- MoE 前向一致性 ----------------
 const w = JSON.parse(fs.readFileSync('assets/models/moe_weights.json', 'utf8'));

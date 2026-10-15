@@ -153,19 +153,26 @@ def draw_car(dr, env, ox, oy, w, color, color_hi, color_dk, frame):
         cx = ox + w / 2 + (off - env.d[0]) * scale
         half = 3.4 * scale
         if prev is not None and half > 0.5:
+            ws = env.s[0] + i * DZ
             pts = [(prev[0] - prev[2], prev[1]), (prev[0] + prev[2], prev[1]),
                    (cx + half, y), (cx - half, y)]
-            dr.polygon(pts, fill=ROAD if i % 2 == 0 else ROAD_HI)
-            if i % 2 == 0 and y - prev[1] >= 1:
-                dr.rectangle([prev[0] - prev[2] - 2, prev[1], prev[0] - prev[2] + 1, y], fill=STRIPE)
-                dr.rectangle([prev[0] + prev[2], prev[1], prev[0] + prev[2] + 3, y], fill=STRIPE)
-            if i % 4 < 2 and y - prev[1] >= 1:
-                dr.rectangle([cx - 1, y, cx + 1, y + (y - prev[1])], fill=STRIPE_DIM)
+            dr.polygon(pts, fill=ROAD if int(ws / DZ) % 2 == 0 else ROAD_HI)
+            if y - prev[1] >= 1:
+                # 红白路缘石（碰撞边界）
+                curb_w = max(1.5, 0.55 * scale)
+                curb_col = DANGER if int(ws / 2.6) % 2 == 0 else STRIPE
+                dr.polygon([(prev[0] - prev[2] - curb_w, prev[1]), (prev[0] - prev[2], prev[1]),
+                            (cx - half, y), (cx - half - curb_w, y)], fill=curb_col)
+                dr.polygon([(prev[0] + prev[2], prev[1]), (prev[0] + prev[2] + curb_w, prev[1]),
+                            (cx + half + curb_w, y), (cx + half, y)], fill=curb_col)
+                # 中线虚线（世界锚定 6.4 m 周期）
+                if int(ws / 6.4) % 2 == 0:
+                    dr.rectangle([cx - 1, y, cx + 1, y + (y - prev[1])], fill=STRIPE_DIM)
         prev = (cx, y, half)
 
     active = env.ev_timer[0] > 0
     is_blow = env.ev_type[0] > 0
-    shake = round(math.sin(frame * (1.3 if is_blow else 0.9)) * (3 if is_blow else 2)) if active else 0
+    shake = math.sin(frame * 0.55) * (1.6 if is_blow else 1.0) if active else 0
     car_y = oy + CELL_H - 26
     car_x = ox + w / 2 - env.d[0] * (FOCAL / (2.5 * DZ)) * 0.55 + shake
     dr.rectangle([car_x - 14, car_y - 6, car_x + 14, car_y + 6], fill=color)
@@ -175,19 +182,24 @@ def draw_car(dr, env, ox, oy, w, color, color_hi, color_dk, frame):
     dr.rectangle([car_x + 9, car_y + 2, car_x + 15, car_y + 8], fill=color_dk)
     dr.rectangle([car_x - 13, car_y - 4, car_x - 9, car_y - 1], fill=DANGER)
     dr.rectangle([car_x + 9, car_y - 4, car_x + 13, car_y - 1], fill=DANGER)
-    if is_blow:
-        dr.rectangle([car_x - 15, car_y + 2, car_x - 9, car_y + 8], fill=SKY)  # 爆胎轮
+    if active and is_blow:
+        flat = [car_x - 15, car_y + 2, car_x - 9, car_y + 8] if env.ev_dir[0] < 0 \
+            else [car_x + 9, car_y + 2, car_x + 15, car_y + 8]
+        dr.rectangle(flat, fill=SKY)  # 爆胎轮随方向瘪掉
     if active:
         for i in range(4):
             px = car_x + (12 if i % 2 else -16) + math.sin(frame * 0.3 + i) * 3
             py = car_y + 4 - ((frame * 0.5 if is_blow else frame * 0.35) + i * 9) % 22
             dr.rectangle([px, py, px + 3, py + 3],
                          fill=DANGER if is_blow else STRIPE_DIM)
-        # 打滑黄框 / 爆胎红框
+        # 事件反馈：顶部色条 + 车旁方向箭头（指明被拽方向，反向打盘修正），无全屏闪烁
         edge_col = DANGER if is_blow else WARN
-        for edge in ((ox, oy, ox + w, oy + 2), (ox, oy + CELL_H - 2, ox + w, oy + CELL_H),
-                     (ox, oy, ox + 2, oy + CELL_H), (ox + w - 2, oy, ox + w, oy + CELL_H)):
-            dr.rectangle(edge, fill=edge_col)
+        dr.rectangle([ox, oy, ox + w, oy + 3], fill=edge_col)
+        ay = car_y - 24
+        dd = 1 if env.ev_dir[0] > 0 else -1
+        dr.line([(car_x - 7, ay), (car_x + 7, ay)], fill=edge_col, width=2)
+        dr.line([(car_x + 1 * dd, ay - 4), (car_x + 7 * dd, ay)], fill=edge_col, width=2)
+        dr.line([(car_x + 1 * dd, ay + 4), (car_x + 7 * dd, ay)], fill=edge_col, width=2)
 
 
 # ------------------------------------------------------------ 标签条

@@ -90,19 +90,26 @@ WHEELBASE = 2.6
 ROAD_HALF = 3.4
 KAPPA_SCALE = 80.0
 LOOKAHEAD = (0.0, 12.0, 28.0, 50.0)
-# 随机事件：打滑（常见、中等强度、转向力下降）
-SKID_P = 0.007
-SKID_T_MIN, SKID_T_MAX = 0.6, 1.6
-SKID_RATE = 0.55        # 偏航角速度 rad/s
-SKID_LAT = 0.90         # 横向漂移 m/s
-SKID_GRIP = 0.45        # 打滑时转向执行力度
-# 随机事件：爆胎（少见、猛烈、掉速）
-BLOW_P = 0.003
+# 事件机制 v3：打滑由转弯角载荷触发（过猛甩尾，沿当前转向方向继续旋转），
+#              爆胎是路面随机 hazards（概率随车速上升）。推力均为冲量式衰减包络，
+#              事件结束后有冷却期，杜绝连环事件。
+SKID_P = 0.004           # 基础概率/步（零载荷直行时很低）
+SKID_LOAD_GAIN = 2.0     # 载荷增益：p = SKID_P * (0.3 + GAIN * load)
+SKID_T_MIN, SKID_T_MAX = 0.6, 1.4
+SKID_RATE = 0.55         # 偏航角速度 rad/s（×衰减包络）
+SKID_LAT = 0.90          # 横向漂移 m/s（×衰减包络）
+SKID_GRIP = 0.45         # 打滑时转向执行力度
+SKID_DIR_TH = 0.15       # |转向| 超过该值视为"转弯中"，甩尾方向 = 转向方向
+# 爆胎（少见、猛烈、掉速且巡航恢复变慢）
+BLOW_P = 0.0025
+BLOW_V_GAIN = 1.5        # 速度增益：p = BLOW_P * (0.5 + GAIN * v/vmax)
 BLOW_T_MIN, BLOW_T_MAX = 0.8, 1.8
 BLOW_RATE = 1.05
 BLOW_LAT = 1.60
 BLOW_GRIP = 0.60
-BLOW_VDROP = 0.80       # 爆胎瞬间速度保留比例
+BLOW_VDROP = 0.80        # 爆胎瞬间速度保留比例
+BLOW_CRUISE = 0.75       # 事件期间巡航目标折减（爆胎后恢复慢，更真实）
+EV_COOLDOWN = 2.0        # 事件结束后的冷却期（s）
 D_DIFF_SCALE = 0.05     # 横向位移差分归一化
 
 W_CENTER = 0.02
@@ -318,9 +325,11 @@ class CarEnv(BaseEnv):
         self.v = np.zeros(n)
         self.steer = np.zeros(n)
         self.ev_timer = np.zeros(n)
+        self.ev_dur = np.ones(n)        # 事件总时长（衰减包络分母）
         self.ev_dir = np.zeros(n)
         self.ev_mag = np.zeros(n)
         self.ev_type = np.zeros(n)      # 0 打滑  1 爆胎
+        self.ev_cool = np.zeros(n)      # 冷却计时（事件期 + 冷却期）
         self.v = np.zeros(n)
 
     def _init(self, idx):
@@ -332,9 +341,11 @@ class CarEnv(BaseEnv):
         self.v[idx] = V_START_CAR
         self.steer[idx] = 0.0
         self.ev_timer[idx] = 0.0
+        self.ev_dur[idx] = 1.0
         self.ev_dir[idx] = 0.0
         self.ev_mag[idx] = 0.0
         self.ev_type[idx] = 0.0
+        self.ev_cool[idx] = 0.0
         self.done[idx] = False
         self.steps[idx] = 0
 
@@ -382,32 +393,43 @@ class CarEnv(BaseEnv):
             self.steer + (steer_in - STEER_RETURN * self.steer * (steer_in == 0)) * DT * SUBSTEPS,
             -STEER_MAX, STEER_MAX)
 
-        # 随机事件（打滑 / 爆胎）。随机数消耗顺序与 JS 端一致：
-        # r1 触发, r2 时长, r3 方向, r4 强度, r5 类型
+        # 事件触发：打滑看转弯角载荷（驾驶行为后果），爆胎看车速（高速 hazard）。
+        # 随机数消耗顺序与 JS 端一致：r1 触发, r2 时长, r3 方向回退, r4 强度, r5 类型
         r1 = self._roll((self.n,))
-        idle = self.ev_timer <= 0
-        fire = idle & (r1 < SKID_P + BLOW_P)
         r2 = self.rng.uniform(0.0, 1.0, size=self.n)
         r3 = self.rng.choice([-1.0, 1.0], size=self.n)
         r4 = self.rng.uniform(0.0, 1.0, size=self.n)
         r5 = self.rng.uniform(0.0, 1.0, size=self.n)
-        is_blow = r5 < BLOW_P / (SKID_P + BLOW_P)
-        self.ev_timer = np.where(fire,
-                                 np.where(is_blow,
-                                          BLOW_T_MIN + r2 * (BLOW_T_MAX - BLOW_T_MIN),
-                                          SKID_T_MIN + r2 * (SKID_T_MAX - SKID_T_MIN)),
-                                 self.ev_timer)
-        self.ev_dir = np.where(fire, r3, self.ev_dir)
+        idle = (self.ev_timer <= 0) & (self.ev_cool <= 0)
+        load = (np.clip(np.abs(self.steer) / STEER_MAX, 0.0, 1.0)
+                * np.clip(self.v / V_MAX_CAR, 0.0, 1.0))
+        p_skid = SKID_P * (0.3 + SKID_LOAD_GAIN * load)
+        p_blow = BLOW_P * (0.5 + BLOW_V_GAIN * self.v / V_MAX_CAR)
+        fire = idle & (r1 < p_skid + p_blow)
+        is_blow = r5 < p_blow / (p_skid + p_blow)
+        dur = np.where(is_blow,
+                       BLOW_T_MIN + r2 * (BLOW_T_MAX - BLOW_T_MIN),
+                       SKID_T_MIN + r2 * (SKID_T_MAX - SKID_T_MIN))
+        # 甩尾方向：转弯中沿当前转向方向继续旋转（车尾向外甩），接近直行则随机
+        skid_dir = np.where(np.abs(self.steer) > SKID_DIR_TH, np.sign(self.steer), r3)
+        self.ev_timer = np.where(fire, dur, self.ev_timer)
+        self.ev_dur = np.where(fire, dur, self.ev_dur)
+        self.ev_dir = np.where(fire, np.where(is_blow, r3, skid_dir), self.ev_dir)
         self.ev_mag = np.where(fire,
                                np.where(is_blow, 0.7 + r4 * 0.3, 0.4 + r4 * 0.6),
                                self.ev_mag)
         self.ev_type = np.where(fire, is_blow.astype(np.float64), self.ev_type)
+        self.ev_cool = np.where(fire, dur + EV_COOLDOWN, self.ev_cool)
         active = self.ev_timer > 0
         self.ev_timer = np.maximum(self.ev_timer - DT * SUBSTEPS, 0.0)
+        self.ev_cool = np.maximum(self.ev_cool - DT * SUBSTEPS, 0.0)
+        # 冲量式衰减包络：事件刚触发时推力最大，随剩余时间线性衰减到 0
+        env_u = np.clip(self.ev_timer / np.maximum(self.ev_dur, 1e-6), 0.0, 1.0)
 
         ev_rate = np.where(self.ev_type > 0, BLOW_RATE, SKID_RATE)
         ev_lat = np.where(self.ev_type > 0, BLOW_LAT, SKID_LAT)
         ev_grip = np.where(self.ev_type > 0, BLOW_GRIP, SKID_GRIP)
+        push = np.where(active, self.ev_dir * self.ev_mag * env_u, 0.0)
 
         v_blow = np.where(fire & (self.ev_type > 0), BLOW_VDROP, 1.0)
         self.v = self.v * v_blow
@@ -416,15 +438,15 @@ class CarEnv(BaseEnv):
         self.d_prev = self.d.copy()
         for _ in range(SUBSTEPS):
             kap = track_curvature(self.s)
-            cruise = self._cruise()
+            # 爆胎期间巡航目标折减：掉速不会立刻弛豫回去，恢复更慢
+            cruise = self._cruise() * np.where(active & (self.ev_type > 0), BLOW_CRUISE, 1.0)
             self.v = np.clip(self.v + (cruise - self.v) * K_RELAX * DT, 0.0, V_MAX_CAR)
             authority = np.where(active, ev_grip, 1.0)
-            yaw = self.v * np.tan(self.steer) * authority / WHEELBASE - self.v * kap
-            yaw = yaw + np.where(active, self.ev_dir * self.ev_mag * ev_rate, 0.0)
+            yaw = (self.v * np.tan(self.steer) * authority / WHEELBASE - self.v * kap
+                   + push * ev_rate)
             self.psi += yaw * DT
             self.psi = np.clip(self.psi, -1.2, 1.2)
-            self.d += (self.v * np.sin(self.psi)
-                       + np.where(active, self.ev_dir * self.ev_mag * ev_lat, 0.0)) * DT
+            self.d += (self.v * np.sin(self.psi) + push * ev_lat) * DT
             self.s += self.v * np.cos(self.psi) * DT
 
         offroad = np.abs(self.d) > ROAD_HALF
