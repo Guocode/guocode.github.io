@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CityDrive — 端到端智驾 AI · 物理环境</title>
+<style>
+  :root {
+    --bg: #0a0f1e; --bg2: #0e1526; --panel: #111a30; --line: #1c2a45;
+    --accent: #64ffda; --accent-dim: #2dd4a7; --text: #e6edf3; --muted: #8b9bb4;
+    --warn: #ffbd2e; --danger: #ff5f56; --ok: #27c93f;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: "Consolas", "SF Mono", "PingFang SC", "Microsoft YaHei", monospace;
+    min-height: 100vh;
+  }
+  .wrap { max-width: 1280px; margin: 0 auto; padding: 28px 20px 60px; }
+  header { text-align: center; margin-bottom: 8px; }
+  header h1 {
+    font-size: 26px; letter-spacing: 2px; color: var(--accent);
+    text-shadow: 0 0 24px rgba(100, 255, 218, .25);
+  }
+  header .sub { color: var(--muted); font-size: 13px; margin-top: 6px; }
+  .stage {
+    display: grid; grid-template-columns: minmax(0, 1fr) 300px;
+    gap: 16px; margin-top: 18px; align-items: start;
+  }
+  @media (max-width: 980px) { .stage { grid-template-columns: 1fr; } }
+  .canvas-box {
+    position: relative; background: var(--bg2); border: 1px solid var(--line);
+    border-radius: 12px; overflow: hidden;
+  }
+  canvas#view { display: block; width: 100%; height: auto; }
+  .toast {
+    position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
+    padding: 8px 20px; border-radius: 8px; font-size: 15px; font-weight: bold;
+    background: rgba(10, 15, 30, .85); border: 1px solid var(--line);
+    opacity: 0; transition: opacity .25s; pointer-events: none; white-space: nowrap;
+  }
+  .toast.show { opacity: 1; }
+  .toast.goal { color: var(--ok); border-color: var(--ok); }
+  .toast.bad  { color: var(--danger); border-color: var(--danger); }
+  .toast.info { color: var(--warn); border-color: var(--warn); }
+  .panel { display: flex; flex-direction: column; gap: 12px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 12px; padding: 14px 16px;
+  }
+  .card h3 {
+    font-size: 12px; color: var(--accent); letter-spacing: 2px;
+    margin-bottom: 10px; text-transform: uppercase;
+  }
+  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .stat {
+    background: var(--bg2); border: 1px solid var(--line); border-radius: 8px;
+    padding: 8px 10px;
+  }
+  .stat .k { font-size: 11px; color: var(--muted); }
+  .stat .v { font-size: 19px; font-weight: bold; margin-top: 2px; color: var(--text); }
+  .stat .v.accent { color: var(--accent); }
+  .nav-hint {
+    display: flex; align-items: center; gap: 12px;
+    background: var(--bg2); border: 1px solid var(--line); border-radius: 8px;
+    padding: 10px 12px;
+  }
+  .nav-arrow { font-size: 34px; color: var(--accent); min-width: 46px; text-align: center; }
+  .nav-info { font-size: 13px; color: var(--muted); line-height: 1.7; }
+  .nav-info b { color: var(--text); }
+  .light { display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin-right: 4px; vertical-align: -1px; }
+  .light.g { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+  .light.y { background: var(--warn); box-shadow: 0 0 8px var(--warn); }
+  .light.r { background: var(--danger); box-shadow: 0 0 8px var(--danger); }
+  .keys { font-size: 13px; color: var(--muted); line-height: 2.1; }
+  kbd {
+    display: inline-block; min-width: 26px; text-align: center;
+    background: var(--bg2); border: 1px solid var(--line); border-bottom-width: 2px;
+    border-radius: 5px; padding: 2px 7px; color: var(--text); font-size: 12px;
+    margin: 0 2px;
+  }
+  .log { font-size: 12px; color: var(--muted); line-height: 1.9; max-height: 130px; overflow-y: auto; }
+  .log .t { color: var(--accent); }
+  canvas#mini {
+    display: block; width: 100%; border-radius: 8px;
+    background: var(--bg2); border: 1px solid var(--line);
+  }
+  .foot { text-align: center; color: var(--muted); font-size: 12px; margin-top: 26px; }
+  .foot a { color: var(--accent); text-decoration: none; }
+  .toggle {
+    display: flex; gap: 8px; margin-top: 4px;
+  }
+  .toggle button {
+    flex: 1; padding: 9px 0; border-radius: 8px; cursor: pointer;
+    background: var(--bg2); color: var(--muted); border: 1px solid var(--line);
+    font-family: inherit; font-size: 13px; transition: all .15s;
+  }
+  .toggle button.on { color: #062018; background: var(--accent); border-color: var(--accent); font-weight: bold; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>CITYDRIVE · 端到端智驾 AI</h1>
+    <div class="sub">阶段一 · 物理引擎环境 — 4×4 灯控路网 / Dijkstra 导航 / 走错路重规划 / 手动驾驶验收</div>
+  </header>
+
+  <div class="stage">
+    <div class="canvas-box">
+      <canvas id="view" width="760" height="760"></canvas>
+      <div class="toast" id="toast"></div>
+    </div>
+
+    <div class="panel">
+      <div class="card">
+        <h3>行车状态</h3>
+        <div class="stats">
+          <div class="stat"><div class="k">车速</div><div class="v accent" id="stV">0 km/h</div></div>
+          <div class="stat"><div class="k">下一路口灯</div><div class="v" id="stL">—</div></div>
+          <div class="stat"><div class="k">剩余导航</div><div class="v" id="stD">— m</div></div>
+          <div class="stat"><div class="k">已到达终点</div><div class="v accent" id="stG">0</div></div>
+          <div class="stat"><div class="k">重规划</div><div class="v" id="stR">0</div></div>
+          <div class="stat"><div class="k">闯红灯</div><div class="v" id="stRed">0</div></div>
+        </div>
+        <div class="nav-hint" style="margin-top:10px">
+          <div class="nav-arrow" id="navArrow">↑</div>
+          <div class="nav-info" id="navInfo">—</div>
+        </div>
+        <div class="toggle">
+          <button id="btnManual" class="on">手动驾驶</button>
+          <button id="btnAI">AI 专家演示</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>小地图 · 路网与路线</h3>
+        <canvas id="mini" width="268" height="268"></canvas>
+      </div>
+
+      <div class="card">
+        <h3>控制</h3>
+        <div class="keys">
+          <kbd>W</kbd>/<kbd>↑</kbd> 油门 &nbsp; <kbd>S</kbd>/<kbd>↓</kbd> 刹车<br>
+          <kbd>A</kbd>/<kbd>←</kbd> <kbd>D</kbd>/<kbd>→</kbd> 转向<br>
+          <kbd>E</kbd> 切换 AI / 手动 &nbsp; <kbd>R</kbd> 重新随机导航<br>
+          <kbd>P</kbd> 暂停
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>事件日志</h3>
+        <div class="log" id="log"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="foot">
+    环境与 <a href="https://github.com/Guocode/Guocode.github.io">Guocode.github.io</a> /drv-ai ·
+    下一步：6 路 BEV 相机 + 导航结构化输入 → CNN 端到端强化学习
+  </div>
+</div>
+
+<script src="assets/js/city.js"></script>
+<script>
+"use strict";
+// ================================================================ 画布
+const view = document.getElementById("view"), vctx = view.getContext("2d");
+const mini = document.getElementById("mini"), mctx = mini.getContext("2d");
+const VW = view.width;                       // 760 px
+const VIEW_SPAN = 96;                        // 主视图覆盖 96 m
+const SCALE = VW / VIEW_SPAN;                // px / m
+const MSPAN = (G_GRID - 1) * B_LEN + 2 * BLD_IN + 4;
+const MS = mini.width / MSPAN;               // 小地图 scale
+
+const env = new CityEnv();
+let mode = "manual";                          // manual | ai
+let paused = false;
+const keys = {};
+let steerSmooth = 0;
+let acc = 0, lastT = performance.now();
+
+// ================================================================ 输入
+addEventListener("keydown", e => {
+  if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"," "].includes(e.key)) e.preventDefault();
+  keys[e.key.toLowerCase()] = true;
+  const k = e.key.toLowerCase();
+  if (k === "e") setMode(mode === "manual" ? "ai" : "manual");
+  if (k === "r") { env.reset(); log("重新随机设置导航", "info"); }
+  if (k === "p") { paused = !paused; log(paused ? "已暂停" : "继续", "info"); }
+});
+addEventListener("keyup", e => { keys[e.key.toLowerCase()] = false; });
+
+function setMode(m) {
+  mode = m;
+  document.getElementById("btnManual").classList.toggle("on", m === "manual");
+  document.getElementById("btnAI").classList.toggle("on", m === "ai");
+  log(m === "ai" ? "AI 专家接管" : "切回手动驾驶", "info");
+}
+document.getElementById("btnManual").onclick = () => setMode("manual");
+document.getElementById("btnAI").onclick = () => setMode("ai");
+
+// ================================================================ 主循环
+function frame(now) {
+  const dt = Math.min(0.1, (now - lastT) / 1000);
+  lastT = now;
+  if (!paused) {
+    acc += dt;
+    let n = 0;
+    while (acc >= DT && n < 6) {
+      acc -= DT; n++;
+      let a, s;
+      if (mode === "ai") {
+        [a, s] = env.expert();
+      } else {
+        const up = keys["w"] || keys["arrowup"], dn = keys["s"] || keys["arrowdown"];
+        const lf = keys["a"] || keys["arrowleft"], rt = keys["d"] || keys["arrowright"];
+        a = up ? A_MAX : (dn ? A_MIN : 0.0);
+        const sTgt = (rt ? 1 : 0) - (lf ? 1 : 0);
+        steerSmooth += Math.max(-3.5 * DT, Math.min(3.5 * DT, sTgt - steerSmooth));
+        s = steerSmooth;
+      }
+      const r = env.step(a, s);
+      if (r.event) onEvent(r.event);
+      if (r.done && (r.event === "collision" || r.event === "offroad")) {
+        setTimeout(() => { env.reset(); }, 900);
+        break;
+      }
+    }
+  }
+  draw(); drawMini(); updateHUD();
+  requestAnimationFrame(frame);
+}
+
+// ================================================================ 事件
+const toastEl = document.getElementById("toast");
+let toastTimer = null;
+function toast(msg, cls) {
+  toastEl.textContent = msg;
+  toastEl.className = "toast show " + cls;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toastEl.className = "toast", 1600);
+}
+function log(msg, cls) {
+  const el = document.getElementById("log");
+  const div = document.createElement("div");
+  const tt = env.t.toFixed(1);
+  div.innerHTML = `<span class="t">[${tt}s]</span> ${msg}`;
+  if (cls === "bad") div.style.color = "#ff8a84";
+  if (cls === "good") div.style.color = "#6ee7a0";
+  el.prepend(div);
+  while (el.children.length > 8) el.lastChild.remove();
+}
+const EV = {
+  goal:      { msg: "🏁 到达导航终点，自动设置新终点", cls: "goal", lg: "到达导航终点 → 自动换新终点", lcls: "good" },
+  collision: { msg: "💥 碰撞！重新出发", cls: "bad", lg: "发生碰撞 → 重置", lcls: "bad" },
+  offroad:   { msg: "🚧 冲出路面！重新出发", cls: "bad", lg: "冲出路面 → 重置", lcls: "bad" },
+  red_light: { msg: "🚥 闯红灯", cls: "info", lg: "闯红灯（惩罚）", lcls: "bad" },
+  timeout:   { msg: "⏱ 回合结束", cls: "info", lg: "回合超时", lcls: "" },
+};
+function onEvent(ev) {
+  const e = EV[ev];
+  if (!e) return;
+  if (ev === "goal" || ev === "collision" || ev === "offroad") toast(e.msg, e.cls);
+  log(e.lg, e.lcls);
+}
+
+// ================================================================ 主视图渲染
+function draw() {
+  const c = vctx;
+  c.fillStyle = "#070b16";
+  c.fillRect(0, 0, VW, VW);
+  c.save();
+  c.translate(VW / 2, VW / 2);
+  c.rotate(env.psi - Math.PI / 2);   // 屏幕系旋转：车头朝上
+  c.scale(SCALE, -SCALE);            // 世界米坐标（y 翻转为数学系）
+  c.translate(-env.x, -env.y);
+
+  drawWorld(c);
+  c.restore();
+}
+
+/* 世界绘制：数学坐标（x 右 y 上），车头方向旋转到屏幕上方 */
+function drawWorld(c) {
+  const span = (G_GRID - 1) * B_LEN;
+  const half = VIEW_SPAN / 2 + 10;
+  const x0 = env.x - half, x1 = env.x + half, y0 = env.y - half, y1 = env.y + half;
+
+  // 街区地面
+  c.fillStyle = "#0d1626";
+  for (let bi = 0; bi < G_GRID - 1; bi++)
+    for (let bj = 0; bj < G_GRID - 1; bj++)
+      c.fillRect(bi * B_LEN, bj * B_LEN, B_LEN, B_LEN);
+
+  // 建筑街区（内缩 BLD_IN 的块）
+  c.fillStyle = "#131f38";
+  for (let bi = 0; bi < G_GRID - 1; bi++)
+    for (let bj = 0; bj < G_GRID - 1; bj++) {
+      const bx = bi * B_LEN, by = bj * B_LEN;
+      c.fillRect(bx + BLD_IN, by + BLD_IN, B_LEN - 2 * BLD_IN, B_LEN - 2 * BLD_IN);
+      // 建筑纹理小窗
+      c.fillStyle = "#1a2a4a";
+      for (let wx = bx + BLD_IN + 6; wx < bx + B_LEN - BLD_IN - 6; wx += 12)
+        for (let wy = by + BLD_IN + 6; wy < by + B_LEN - BLD_IN - 6; wy += 12)
+          if ((wx * 7 + wy * 13) % 5 < 2) c.fillRect(wx, wy, 6, 6);
+      c.fillStyle = "#131f38";
+    }
+
+  // 道路（横竖条带）：人行道带 + 路面 + 路沿
+  for (let i = 0; i < G_GRID; i++) {
+    const p = i * B_LEN;
+    c.fillStyle = "#232f47";                                    // 人行道
+    c.fillRect(p - SW_OUT, y0 - 20, SW_OUT * 2, (y1 - y0) + 40); // 纵向
+    c.fillRect(x0 - 20, p - SW_OUT, (x1 - x0) + 40, SW_OUT * 2); // 横向
+  }
+  c.fillStyle = "#313d55";                                       // 路面
+  for (let i = 0; i < G_GRID; i++) {
+    const p = i * B_LEN;
+    c.fillRect(p - R_HALF, y0 - 20, R_HALF * 2, (y1 - y0) + 40);
+    c.fillRect(x0 - 20, p - R_HALF, (x1 - x0) + 40, R_HALF * 2);
+  }
+  // 路沿（白细线）
+  c.strokeStyle = "rgba(220,230,245,.55)"; c.lineWidth = CURB_W;
+  c.beginPath();
+  for (let i = 0; i < G_GRID; i++) {
+    const p = i * B_LEN;
+    c.moveTo(p - R_HALF, y0); c.lineTo(p - R_HALF, y1);
+    c.moveTo(p + R_HALF, y0); c.lineTo(p + R_HALF, y1);
+    c.moveTo(x0, p - R_HALF); c.lineTo(x1, p - R_HALF);
+    c.moveTo(x0, p + R_HALF); c.lineTo(x1, p + R_HALF);
+  }
+  c.stroke();
+  // 黄色中心车道线（虚线）
+  c.strokeStyle = "rgba(255,205,80,.75)"; c.lineWidth = LINE_W;
+  c.setLineDash([3, 3]);
+  c.beginPath();
+  for (let i = 0; i < G_GRID; i++) {
+    const p = i * B_LEN;
+    c.moveTo(p, y0); c.lineTo(p, y1);
+    c.moveTo(x0, p); c.lineTo(x1, p);
+  }
+  c.stroke();
+  c.setLineDash([]);
+
+  // 树（人行道上确定性网格）
+  c.fillStyle = "#1f5c3d";
+  for (let bi = 0; bi <= G_GRID; bi++)
+    for (let bj = 0; bj <= G_GRID; bj++) {
+      for (let k = 0; k < 6; k++) {
+        const s = k * 15 + 0.6;
+        if (s > B_LEN - 4) break;
+        const spots = [
+          [bi * B_LEN + s, bj * B_LEN + 5.35], [bi * B_LEN + s, bj * B_LEN + B_LEN - 5.35],
+          [bi * B_LEN + 5.35, bj * B_LEN + s], [bi * B_LEN + B_LEN - 5.35, bj * B_LEN + s]];
+        for (const [tx, ty] of spots) {
+          if (tx < x0 || tx > x1 || ty < y0 || ty > y1) continue;
+          if (bi === G_GRID && (ty < bj * B_LEN - 1 || ty > (bj + 1) * B_LEN + 1)) continue;
+          if (bj === G_GRID && (tx < bi * B_LEN - 1 || tx > (bi + 1) * B_LEN + 1)) continue;
+          c.beginPath(); c.arc(tx, ty, 1.4, 0, 7); c.fill();
+        }
+      }
+    }
+
+  // 红绿灯光点：每路口沿 NS/EW 各两个（进入方向右侧）
+  for (let i = 0; i < G_GRID; i++)
+    for (let j = 0; j < G_GRID; j++) {
+      const nx = i * B_LEN, ny = j * B_LEN;
+      // NS 相位（dir 0）光点放路口南/北进入线，EW 相位放东/西
+      const ns = lightState(env.t, 0), ew = lightState(env.t, 1);
+      const colNS = ["#37e071", "#ffbd2e", "#ff5f56"][ns];
+      const colEW = ["#37e071", "#ffbd2e", "#ff5f56"][ew];
+      c.fillStyle = colNS;
+      c.beginPath(); c.arc(nx - 4.6, ny + 7.5, 1.1, 0, 7); c.fill();  // 南进口
+      c.beginPath(); c.arc(nx + 4.6, ny - 7.5, 1.1, 0, 7); c.fill();  // 北进口
+      c.fillStyle = colEW;
+      c.beginPath(); c.arc(nx + 7.5, ny + 4.6, 1.1, 0, 7); c.fill();  // 西进口
+      c.beginPath(); c.arc(nx - 7.5, ny - 4.6, 1.1, 0, 7); c.fill();  // 东进口
+    }
+
+  // 导航路线（右侧车道偏移的折线）
+  const route = env.route;
+  c.strokeStyle = "rgba(100,255,218,.8)"; c.lineWidth = 0.8;
+  c.setLineDash([2.4, 2.0]);
+  c.beginPath();
+  for (let k = 0; k < route.length - 1; k++) {
+    const p = NODE_POS[route[k]], q = NODE_POS[route[k + 1]];
+    const dl = Math.hypot(q[0] - p[0], q[1] - p[1]);
+    const dv = [(q[0] - p[0]) / dl, (q[1] - p[1]) / dl];
+    const rt = [dv[1], -dv[0]];
+    c.moveTo(p[0] + rt[0] * LANE_OFF, p[1] + rt[1] * LANE_OFF);
+    c.lineTo(q[0] + rt[0] * LANE_OFF, q[1] + rt[1] * LANE_OFF);
+  }
+  c.stroke();
+  c.setLineDash([]);
+
+  // 终点旗
+  const goalN = route[route.length - 1];
+  const gp = NODE_POS[goalN];
+  c.strokeStyle = "#64ffda"; c.lineWidth = 0.5;
+  c.beginPath(); c.arc(gp[0], gp[1], 3.2, 0, 7); c.stroke();
+  c.fillStyle = "rgba(100,255,218,.25)";
+  c.beginPath(); c.arc(gp[0], gp[1], 3.2, 0, 7); c.fill();
+
+  // NPC
+  const np = env.npcPositions();
+  for (let m = 0; m < np.pos.length; m++) {
+    const [px, py] = np.pos[m];
+    if (px < x0 - 5 || px > x1 + 5 || py < y0 - 5 || py > y1 + 5) continue;
+    if (np.cls[m] === 0) {
+      // 车：找所在边方向
+      const ang = carAngle(m);
+      c.save(); c.translate(px, py); c.rotate(ang);
+      c.fillStyle = "#e88b4a";
+      rrect(c, -2.1, -1.0, 4.2, 2.0, 0.6); c.fill();
+      c.fillStyle = "#25314d";
+      c.fillRect(-0.7, -0.8, 1.6, 1.6);
+      c.restore();
+    } else if (np.cls[m] === 1) {
+      c.fillStyle = "#4ad8e8";
+      c.beginPath(); c.arc(px, py, 0.85, 0, 7); c.fill();
+    } else {
+      c.fillStyle = "#d8cba8";
+      c.beginPath(); c.arc(px, py, 0.6, 0, 7); c.fill();
+    }
+  }
+
+  // 本车
+  c.save();
+  c.translate(env.x, env.y);
+  c.rotate(env.psi);
+  c.fillStyle = "#f2f6fb";
+  rrect(c, -2.2, -1.05, 4.4, 2.1, 0.65); c.fill();
+  c.fillStyle = "#64ffda";
+  c.fillRect(0.4, -0.85, 1.3, 1.7);       // 挡风玻璃
+  c.fillStyle = "#0a0f1e";
+  c.fillRect(-1.9, -0.95, 0.5, 0.35); c.fillRect(-1.9, 0.6, 0.5, 0.35);
+  c.fillRect(1.4, -0.95, 0.5, 0.35); c.fillRect(1.4, 0.6, 0.5, 0.35);
+  c.restore();
+}
+
+function carAngle(m) {
+  // 第 m 辆车所在边的方向角
+  const e = env.carEdge[m];
+  return Math.atan2(EDGE_DIR[e][1], EDGE_DIR[e][0]);
+}
+function rrect(c, x, y, w, h, r) {
+  c.beginPath();
+  c.moveTo(x + r, y);
+  c.arcTo(x + w, y, x + w, y + h, r);
+  c.arcTo(x + w, y + h, x, y + h, r);
+  c.arcTo(x, y + h, x, y, r);
+  c.arcTo(x, y, x + w, y, r);
+  c.closePath();
+}
+
+// ================================================================ 小地图
+function drawMini() {
+  const c = mctx;
+  c.fillStyle = "#070b16";
+  c.fillRect(0, 0, mini.width, mini.height);
+  c.save();
+  c.translate(0, mini.height);
+  c.scale(MS, -MS);
+  c.translate(-BLD_IN - 2, -BLD_IN - 2);
+  const span = (G_GRID - 1) * B_LEN;
+  // 路面
+  c.strokeStyle = "#313d55"; c.lineWidth = R_HALF * 2;
+  c.beginPath();
+  for (let i = 0; i < G_GRID; i++) {
+    const p = i * B_LEN;
+    c.moveTo(p, -R_HALF); c.lineTo(p, span + R_HALF);
+    c.moveTo(-R_HALF, p); c.lineTo(span + R_HALF, p);
+  }
+  c.stroke();
+  // 路线
+  c.strokeStyle = "rgba(100,255,218,.9)"; c.lineWidth = 1.6;
+  c.setLineDash([4, 3]);
+  c.beginPath();
+  env.route.forEach((n, k) => {
+    const p = NODE_POS[n];
+    k === 0 ? c.moveTo(p[0], p[1]) : c.lineTo(p[0], p[1]);
+  });
+  c.stroke();
+  c.setLineDash([]);
+  // 终点
+  const gp = NODE_POS[env.route[env.route.length - 1]];
+  c.fillStyle = "#64ffda";
+  c.beginPath(); c.arc(gp[0], gp[1], 3.4, 0, 7); c.fill();
+  // NPC 小点
+  const np = env.npcPositions();
+  for (let m = 0; m < np.pos.length; m++) {
+    c.fillStyle = np.cls[m] === 0 ? "#e88b4a" : np.cls[m] === 1 ? "#4ad8e8" : "#d8cba8";
+    c.beginPath(); c.arc(np.pos[m][0], np.pos[m][1], 1.6, 0, 7); c.fill();
+  }
+  // 本车
+  c.save();
+  c.translate(env.x, env.y);
+  c.rotate(env.psi);
+  c.fillStyle = "#ffffff";
+  c.beginPath();
+  c.moveTo(5, 0); c.lineTo(-3, 3); c.lineTo(-3, -3);
+  c.closePath(); c.fill();
+  c.restore();
+  c.restore();
+}
+
+// ================================================================ HUD
+function updateHUD() {
+  document.getElementById("stV").textContent = (env.v * 3.6).toFixed(0) + " km/h";
+  document.getElementById("stG").textContent = env.goalsDone;
+  document.getElementById("stR").textContent = env.replans;
+  document.getElementById("stRed").textContent = env.redRuns;
+  const nav = env.navInputs();
+  const turn1 = Math.atan2(nav[0], nav[1]);
+  const { segLen } = routePolyline(env.route);
+  const total = segLen.reduce((a, b) => a + b, 0);
+  // d_next（与 navInputs 相同推导）
+  let cum = 0, nxtK = segLen.length - 1;
+  for (let k = 0; k < segLen.length; k++) {
+    if (env.prog <= cum + segLen[k]) { nxtK = k; break; }
+    cum += segLen[k];
+  }
+  const dNext = cum + segLen[nxtK] - env.prog;
+  document.getElementById("stD").textContent = (total - env.prog).toFixed(0) + " m";
+  // 转向箭头
+  const arrow = document.getElementById("navArrow");
+  if (turn1 > 0.5) arrow.textContent = "↰";
+  else if (turn1 < -0.5) arrow.textContent = "↱";
+  else arrow.textContent = "↑";
+  arrow.style.color = turn1 !== 0 && dNext < 25 ? "#ffbd2e" : "#64ffda";
+  // 灯态
+  const dcur = [Math.cos(env.psi), Math.sin(env.psi)];
+  const dirCls = Math.abs(dcur[1]) > Math.abs(dcur[0]) ? 0 : 1;
+  const ls = lightState(env.t, dirCls);
+  const cls = ["g", "y", "r"][ls], name = ["绿灯", "黄灯", "红灯"][ls];
+  document.getElementById("stL").innerHTML = `<span class="light ${cls}"></span>${name}`;
+  const navInfo = document.getElementById("navInfo");
+  navInfo.innerHTML =
+    `距下一路口 <b>${dNext.toFixed(0)} m</b>` +
+    (Math.abs(turn1) > 0.5 ? `，之后${turn1 > 0 ? "左" : "右"}转` : "，直行") +
+    `<br>偏离路线 <b>${env.dev.toFixed(1)} m</b>`;
+}
+
+log("环境就绪 — 用 W/A/S/D 驾驶到青色旗帜处", "good");
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
