@@ -1,16 +1,18 @@
-"""Pixel Arena — 两个游戏的轻量物理环境（向量化）
+"""Pixel Arena v2 — 两个游戏的轻量物理环境（向量化·无限模式）
 
-Game 0  RUNNER  双足机器人赛跑：躯干刚体（平动 + 俯仰）+ 两条弹簧腿
-Game 1  CAR     失控汽车驾驶：沿赛道 Frenet 坐标 + 随机轮子失控扰动
+Game 0  RUNNER  独轮平衡机器人：无腿，自动前进，玩家只控身体平衡
+Game 1  CAR     高速公路：自动油门，玩家只控左右转向，随机打滑/爆胎
 
-两个环境共享
-  * 动作空间：4 个离散动作
-  * 观测维度：14
-  * step 频率：1/60 s（2 个 1/120 子步）
-因此可以被同一个 MoE 策略网络同时驱动。
+v2 变化
+  * 两关均无终点：MAX_STEPS 只是训练用回合上限，浏览器端永不超时
+  * RUNNER 去掉腿自由度：躯干立在驱动轮上（倒立摆），前进本身带抖动，
+    另有随机平衡噪声（OU 过程）与随机颠簸事件，玩家只有 4 档平衡力矩
+  * CAR 去掉油门/刹车：车速自动爬升，玩家只有 4 档转向；
+    随机事件分两类——打滑（侧滑 + 转向力下降）与爆胎（强拽偏 + 掉速）
+  * 动作空间仍为 4 个离散动作、观测 14 维、步频 1/60 s（2 个 1/120 子步），
+    同一个 MoE 策略网络可直接驱动
 
-本文件中的常量与积分公式与浏览器端 assets/js/env.js 逐行对应，
-用固定 seed 的动作序列可做 golden 校验。
+本文件中的常量与积分公式与浏览器端 assets/js/env.js 逐行对应。
 """
 
 import numpy as np
@@ -20,70 +22,78 @@ DT = 1.0 / 120.0
 SUBSTEPS = 2
 N_OBS = 14
 N_ACT = 4
-MAX_STEPS = 1500          # 单回合 25 s
+MAX_STEPS = 3600          # 训练用回合上限 60 s；浏览器端无超时（无限模式）
 
 ACT_NAMES = {
-    0: ["STEP_L", "STEP_R", "LEAN_FWD", "LEAN_BACK"],
-    1: ["STEER_L", "STEER_R", "ACCEL", "BRAKE"],
+    0: ["LEAN_BACK", "LEAN_FWD", "LEAN_BACK+", "LEAN_FWD+"],
+    1: ["STEER_L", "STEER_R", "STEER_L+", "STEER_R+"],
 }
 
-# ================================================================= Game 0 RUNNER
-G = 20.0
-MASS = 1.0
-INERTIA = 0.45        # 躯干 + 腿的等效转动惯量
-HIP_OFF = 0.22        # 质心到髋的距离
-L0 = 0.55
-K_LEG = 800.0       # 刚度足够大，双腿/单腿切换时身体只下沉 ~1 cm
-C_LEG = 30.0
-PUSH = 60.0           # 蹬地推进系数
-V_CUT = 5.0           # 推进的速度上限：步频有生理极限，越快蹬地越使不上力
-CHARGE_T = 0.30       # 蹬地能量耗尽时间：落地充满，支撑期间衰减
-F_MAX = 90.0
-# 俯仰控制是"设定目标倾角"的高层指令，由内部伺服持续执行，
-# 因此不占用迈腿动作位——否则换步与平衡会互相抢占同一个动作。
-KP_PITCH = 14.0       # 伺服比例增益
-KD_PITCH = 2.6        # 伺服微分增益
-TORQUE_MAX = 6.0      # 伺服力矩上限
-C_ANG = 0.30          # 俯仰被动阻尼
-PITCH_COUPLE = 0.35   # 蹬地推进对俯仰的耦合系数（躯干与摆臂会抵消大部分）
-TILT_FWD = -0.35      # 动作 2：激进前倾，步幅更大更快
-TILT_BACK = 0.12      # 动作 3：收身直立，更稳但慢
-TILT_INIT = -0.15     # 初始目标倾角
-DRAG = 1.4
-SWING_T = 0.10          # 摆动相时长 -> 步频 ~10 Hz
-STEP_LEN = 0.16         # 基础步幅
-STEP_MAX = 0.21         # 步幅上限：脚相对髋的水平偏移受腿长几何约束
-STEP_H = 0.15
-LEAN_GAIN = 1.2
+# ================================================================= Game 0 RUNNER（独轮平衡）
+# 躯干是立在驱动轮上的倒立摆：轮子按预设速度一直向前滚，
+# 平衡完全靠玩家对躯干施加力矩。掉下即结束，距离即分数。
+K_INV = 3.3             # 倒立摆失稳系数（≈ G / 等效摆长）
+INERTIA = 0.45
+C_ANG = 0.30            # 俯仰被动阻尼
+V_START = 2.2           # 起始车速 m/s
+ACC_RAMP = 0.08         # 车速随时间线性爬升
+V_JIT = 0.15            # 步频抖动幅度（前进姿势带来的持续抖动）
+JIT_FREQ = 1.7          # 抖动频率 Hz
+V_MAX_RUN = 6.5
+ACC_COUPLE = 0.10       # 加速度对俯仰的耦合（加速时身体后仰）
+# 平衡噪声：OU 随机过程，速度越快噪声越大
+OU_THETA = 0.8
+OU_SIGMA = 2.2
+NOISE_GAIN = 0.9
+N_SCALE = 3.0           # 观测归一化
+# 随机颠簸事件（坑洼/碎石）：短促力矩冲击
+BUMP_P = 0.008
+BUMP_T_MIN = 0.15
+BUMP_T_MAX = 0.45
+BUMP_GAIN = 2.6
+# 玩家力矩（软/硬各两档，方向由动作决定）
+T_SOFT = 1.3
+T_HARD = 2.6
 FALL_ANG = 0.90
-MIN_Y = 0.34
-V_MAX_RUN = 8.0
+W_NORM = 6.0
+A_SCALE = 2.0
 
 W_DIST = 1.0
 W_ALIVE = 0.005
 W_POSTURE = 0.03
 FALL_PENALTY = 1.0
 
-# ================================================================= Game 1 CAR
-ACC = 6.0
-BRAKE_FORCE = 9.0
+# ================================================================= Game 1 CAR（无限公路）
 CAR_DRAG = 0.22
-V_MAX_CAR = 30.0
+V_START_CAR = 8.0       # 起步巡航速度
+V_RAMP = 0.004          # 巡航速度随里程爬升（难度递增）
+V_MAX_CAR = 26.0
+K_RELAX = 0.5           # 实际车速向巡航速度弛豫的速率
 STEER_RATE = 2.4
+STEER_HARD = 2.0        # 硬转向倍率
 STEER_MAX = 0.55
 STEER_RETURN = 2.0
 WHEELBASE = 2.6
 ROAD_HALF = 3.4
 KAPPA_SCALE = 80.0
 LOOKAHEAD = (0.0, 12.0, 28.0, 50.0)
-DISTURB_P = 0.010          # 每步触发"轮子失控"的概率
-DISTURB_T_MIN = 0.4
-DISTURB_T_MAX = 1.3
-D_RATE = 0.95              # 失控偏航角速度 rad/s
-D_LAT = 1.30               # 失控横向漂移 m/s
-W_CENTER = 0.02            # 偏离车道中心惩罚
+# 随机事件：打滑（常见、中等强度、转向力下降）
+SKID_P = 0.007
+SKID_T_MIN, SKID_T_MAX = 0.6, 1.6
+SKID_RATE = 0.55        # 偏航角速度 rad/s
+SKID_LAT = 0.90         # 横向漂移 m/s
+SKID_GRIP = 0.45        # 打滑时转向执行力度
+# 随机事件：爆胎（少见、猛烈、掉速）
+BLOW_P = 0.003
+BLOW_T_MIN, BLOW_T_MAX = 0.8, 1.8
+BLOW_RATE = 1.05
+BLOW_LAT = 1.60
+BLOW_GRIP = 0.60
+BLOW_VDROP = 0.80       # 爆胎瞬间速度保留比例
+D_DIFF_SCALE = 0.05     # 横向位移差分归一化
+
+W_CENTER = 0.02
 CRASH_PENALTY = 1.0
-V_STALL = 0.6
 
 
 def track_curvature(s):
@@ -107,43 +117,40 @@ class BaseEnv:
 
 # ================================================================= Game 0
 class RunnerEnv(BaseEnv):
+    """独轮平衡机器人。动作：
+       0 后倾(软)  1 前倾(软)  2 后倾(硬)  3 前倾(硬)
+       约定 th > 0 为后仰；纠正后仰需要前倾力矩（负力矩）。"""
+
     task_id = 0
 
     def __init__(self, n=64, seed=None, posture_penalty=True):
         super().__init__(n, seed)
         self.posture_penalty = posture_penalty
         self.x = np.zeros(n)
-        self.y = np.zeros(n)
-        self.vx = np.zeros(n)
-        self.vy = np.zeros(n)
         self.th = np.zeros(n)
         self.w = np.zeros(n)
-        self.stance = np.ones((n, 2), dtype=bool)
-        self.fx = np.zeros((n, 2))
-        self.fy = np.zeros((n, 2))
-        self.sw_t = np.zeros((n, 2))
-        self.sw_x0 = np.zeros((n, 2))
-        self.charge = np.ones((n, 2))    # 蹬地能量
-        self.dragged = np.zeros((n, 2), dtype=bool)  # 该腿是否为被动拖离
-        self.th_target = np.full(n, TILT_INIT)   # 目标俯仰角（伺服设定值）
+        self.ou = np.zeros(n)
+        self.b_timer = np.zeros(n)
+        self.b_dur = np.zeros(n)
+        self.b_dir = np.zeros(n)
+        self.b_mag = np.zeros(n)
+        self.phase = np.zeros(n)
+        self.vx = np.zeros(n)
+        self.ax = np.zeros(n)
+        self.vx_prev = np.zeros(n)
 
     def _init(self, idx):
         k = len(idx)
         self.x[idx] = 0.0
-        self.y[idx] = L0 * 0.94 + HIP_OFF + self.rng.uniform(-0.02, 0.02, size=k)
-        self.vx[idx] = 0.0
-        self.vy[idx] = 0.0
-        self.th[idx] = self.rng.uniform(-0.05, 0.05, size=k)
-        self.w[idx] = 0.0
-        self.stance[idx] = True
-        self.fx[idx, 0] = -0.12
-        self.fx[idx, 1] = 0.12
-        self.fy[idx] = 0.0
-        self.sw_t[idx] = 0.0
-        self.sw_x0[idx] = self.fx[idx]
-        self.charge[idx] = 1.0
-        self.dragged[idx] = False
-        self.th_target[idx] = TILT_INIT
+        self.th[idx] = self.rng.uniform(-0.08, 0.08, size=k)
+        self.w[idx] = self.rng.uniform(-0.3, 0.3, size=k)
+        self.ou[idx] = 0.0
+        self.b_timer[idx] = 0.0
+        self.b_dur[idx] = 1.0
+        self.b_dir[idx] = 0.0
+        self.b_mag[idx] = 0.0
+        self.phase[idx] = 0.0
+        self.vx_prev[idx] = V_START
         self.done[idx] = False
         self.steps[idx] = 0
 
@@ -159,116 +166,78 @@ class RunnerEnv(BaseEnv):
         if len(idx):
             self._init(idx)
 
+    def _speed_profile(self):
+        """预设前进速度（与平衡无关，机器人永远向前滚）：
+        随时间爬升 + 步频抖动。返回 (vx, ax)。"""
+        t = self.steps * (DT * SUBSTEPS)
+        base = np.minimum(V_START + ACC_RAMP * t, V_MAX_RUN)
+        vx = base + V_JIT * np.sin(2.0 * np.pi * JIT_FREQ * t)
+        ax = (vx - self.vx_prev) / (DT * SUBSTEPS)
+        return vx, ax
+
     def obs(self):
-        hip_x = self.x + HIP_OFF * np.sin(self.th)
-        u_l = np.clip(self.sw_t[:, 0] / SWING_T, 0.0, 1.0)
-        u_r = np.clip(self.sw_t[:, 1] / SWING_T, 0.0, 1.0)
-        sw_l = (~self.stance[:, 0]).astype(np.float64)
-        sw_r = (~self.stance[:, 1]).astype(np.float64)
+        vx, ax = self._speed_profile()
+        t = self.steps * (DT * SUBSTEPS)
+        ph = 2.0 * np.pi * JIT_FREQ * t
+        b_active = (self.b_timer > 0).astype(np.float64)
+        b_prog = np.where(self.b_timer > 0,
+                          np.clip(1.0 - self.b_timer / np.maximum(self.b_dur, 1e-6), 0.0, 1.0),
+                          0.0)
         return np.stack([
-            self.y / L0,
-            self.vx / V_MAX_RUN,
-            self.vy / V_MAX_RUN,
             np.sin(self.th),
             np.cos(self.th),
-            self.w / 6.0,
-            sw_l, u_l * sw_l, (self.fx[:, 0] - hip_x) / L0, self.fy[:, 0] / L0,
-            sw_r, u_r * sw_r, (self.fx[:, 1] - hip_x) / L0, self.fy[:, 1] / L0,
+            self.w / W_NORM,
+            vx / V_MAX_RUN,
+            np.clip(ax / A_SCALE, -1.0, 1.0),
+            self.ou / N_SCALE,
+            b_active,
+            self.b_dir * self.b_mag * b_active,
+            b_prog,
+            np.abs(self.th),
+            self.th * self.w / W_NORM,
+            np.sin(ph),
+            np.cos(ph),
+            np.minimum(t / 60.0, 1.0),
         ], axis=1).astype(np.float32)
-
-    def _substep(self, trigger):
-        start = self.stance & trigger
-        if start.any():
-            self.sw_x0 = np.where(start, self.fx, self.sw_x0)
-            self.sw_t = np.where(start, 0.0, self.sw_t)
-            self.stance = np.where(start, False, self.stance)
-            self.dragged = np.where(start, False, self.dragged)
-
-        hip_x = self.x + HIP_OFF * np.sin(self.th)
-        hip_y = self.y - HIP_OFF * np.cos(self.th)
-        rx, ry = hip_x - self.x, hip_y - self.y
-
-        Fx = np.zeros(self.n)
-        Fy = np.zeros(self.n)
-        tau = np.zeros(self.n)
-
-        for i in (0, 1):
-            st = self.stance[:, i]
-            sw = ~st
-            dx = hip_x - self.fx[:, i]
-            dy = hip_y - self.fy[:, i]
-            L = np.maximum(np.sqrt(dx * dx + dy * dy), 1e-3)
-            ux, uy = dx / L, dy / L
-
-            Ldot = (self.vx * dx + self.vy * dy) / L
-            fmag = np.clip(K_LEG * (L0 - L) - C_LEG * Ldot, -F_MAX, F_MAX)
-            # 蹬地推进：模拟腿部肌肉主动伸展。压缩越深蹬地越强，腿伸直后无推力，
-            # 因此必须及时换步才能维持速度；落在身后的腿推进更强。
-            compress = np.clip((L0 - L) / (0.15 * L0), 0.0, 1.0)
-            rear = np.clip(dx / (0.30 * L0), 0.0, 1.0)
-            # 水平方向完全由蹬地推进驱动（弹簧只负责垂直支撑），
-            # 否则前脚的水平分力会形成无法摆脱的制动，机器人只会倒退。
-            # 推进力 ∝ 该腿剩余的蹬地能量，站着不动能量耗尽后就跑不起来。
-            fade = np.clip(1.0 - self.vx / V_CUT, 0.0, 1.0)
-            fsx = PUSH * self.charge[:, i] * (0.35 + 0.65 * rear) * (0.30 + 0.70 * compress) * fade
-            fsy = fmag * uy
-
-            Fx += np.where(st, fsx, 0.0)
-            Fy += np.where(st, fsy, 0.0)
-            tau += np.where(st, rx * fsy - ry * fsx * PITCH_COUPLE, 0.0)
-
-            # 被动拖离：腿被拉过头时脚自然离地换步（否则弹簧会向下拽倒机器人）。
-            # 拖离不重置蹬地能量，所以主动换步才是维持速度的关键。
-            other_st = self.stance[:, 1 - i]
-            drag = st & (L > L0 * 1.08) & other_st
-            self.stance[:, i] = np.where(drag, False, self.stance[:, i])
-            self.sw_t[:, i] = np.where(drag, 0.0, self.sw_t[:, i])
-            self.sw_x0[:, i] = np.where(drag, self.fx[:, i], self.sw_x0[:, i])
-            self.charge[:, i] = np.where(drag, 0.0, self.charge[:, i])
-            self.dragged[:, i] = np.where(drag, True, self.dragged[:, i])
-            sw = ~self.stance[:, i]
-
-            step_eff = STEP_LEN * (1.0 + LEAN_GAIN * np.maximum(0.0, -self.th)) + 0.05 * self.vx
-            step_eff = np.clip(step_eff, 0.05, STEP_MAX)
-            target = hip_x + step_eff
-            t = np.where(sw, self.sw_t[:, i] + DT, self.sw_t[:, i])
-            u = np.clip(t / SWING_T, 0.0, 1.0)
-            nx = self.sw_x0[:, i] + (target - self.sw_x0[:, i]) * u
-            ny = np.sin(np.pi * u) * STEP_H
-            self.fx[:, i] = np.where(sw, nx, self.fx[:, i])
-            self.fy[:, i] = np.where(sw, ny, 0.0)
-            self.sw_t[:, i] = t
-            landed = sw & (u >= 1.0)
-            self.stance[:, i] = np.where(landed, True, self.stance[:, i])
-            chg = np.maximum(self.charge[:, i] - DT / CHARGE_T, 0.0)
-            self.charge[:, i] = np.where(landed, np.where(self.dragged[:, i], 0.0, 1.0), chg)
-            self.dragged[:, i] = np.where(landed, False, self.dragged[:, i])
-
-        Fx -= DRAG * self.vx
-        # 姿态伺服：追踪玩家设定的目标倾角
-        tau_ctrl = np.clip(KP_PITCH * (self.th_target - self.th) - KD_PITCH * self.w,
-                           -TORQUE_MAX, TORQUE_MAX)
-        tau += tau_ctrl - C_ANG * self.w
-
-        self.w += (tau / INERTIA) * DT
-        self.th += self.w * DT
-        self.vx += (Fx / MASS) * DT
-        self.vy += (Fy / MASS - G) * DT
-        self.x += self.vx * DT
-        self.y += self.vy * DT
 
     def step(self, actions):
         a = np.asarray(actions, dtype=np.int64)
-        trigger = np.stack([a == 0, a == 1], axis=1)
-        self.th_target = np.where(a == 2, TILT_FWD,
-                                  np.where(a == 3, TILT_BACK, self.th_target))
+        tau_cmd = np.where(a == 0, T_SOFT, np.where(a == 1, -T_SOFT,
+                           np.where(a == 2, T_HARD, np.where(a == 3, -T_HARD, 0.0))))
 
+        # 随机颠簸事件
+        idle = self.b_timer <= 0
+        fire = idle & (self._roll((self.n,)) < BUMP_P)
+        b_dur_new = self.rng.uniform(BUMP_T_MIN, BUMP_T_MAX, size=self.n)
+        self.b_timer = np.where(fire, b_dur_new, self.b_timer)
+        self.b_dur = np.where(fire, b_dur_new, self.b_dur)
+        self.b_dir = np.where(fire, self.rng.choice([-1.0, 1.0], size=self.n), self.b_dir)
+        self.b_mag = np.where(fire, self.rng.uniform(0.5, 1.0, size=self.n), self.b_mag)
+        b_active = self.b_timer > 0
+        b_u = np.where(b_active, np.clip(1.0 - self.b_timer / np.maximum(self.b_dur, 1e-6), 0.0, 1.0), 0.0)
+
+        vx, ax = self._speed_profile()
         x0 = self.x.copy()
-        for _ in range(SUBSTEPS):
-            self._substep(trigger)
-            trigger = np.zeros_like(trigger)
 
-        fallen = (np.abs(self.th) > FALL_ANG) | (self.y < MIN_Y)
+        for _ in range(SUBSTEPS):
+            # OU 平衡噪声（速度越快越大）
+            self.ou += (-OU_THETA * self.ou * DT
+                        + OU_SIGMA * np.sqrt(DT) * self.rng.standard_normal(self.n))
+            tau_noise = NOISE_GAIN * self.ou * (0.35 + 0.65 * vx / V_MAX_RUN)
+            tau_bump = np.where(b_active, self.b_dir * self.b_mag * BUMP_GAIN
+                                * np.sin(np.pi * np.clip(b_u, 0.0, 1.0)), 0.0)
+            tau = (K_INV * np.sin(self.th) + tau_cmd / INERTIA
+                   + tau_noise + tau_bump + ACC_COUPLE * ax - C_ANG * self.w)
+            self.w += tau * DT
+            self.th += self.w * DT
+            self.x += vx * DT
+            self.b_timer = np.maximum(self.b_timer - DT, 0.0)
+
+        self.vx = vx
+        self.ax = ax
+        self.vx_prev = vx
+
+        fallen = np.abs(self.th) > FALL_ANG
         self.steps += 1
         timeout = self.steps >= MAX_STEPS
 
@@ -286,31 +255,38 @@ class RunnerEnv(BaseEnv):
 
 # ================================================================= Game 1
 class CarEnv(BaseEnv):
+    """无限公路。动作：
+       0 左转(软)  1 右转(软)  2 左转(硬)  3 右转(硬)
+       油门全自动（巡航速度随里程爬升），随机事件分打滑 / 爆胎两类。"""
+
     task_id = 1
 
     def __init__(self, n=64, seed=None):
         super().__init__(n, seed)
         self.s = np.zeros(n)
         self.d = np.zeros(n)
+        self.d_prev = np.zeros(n)
         self.psi = np.zeros(n)
         self.v = np.zeros(n)
         self.steer = np.zeros(n)
-        self.d_timer = np.zeros(n)
-        self.d_dir = np.zeros(n)
-        self.d_mag = np.zeros(n)
-        self.v_prev = np.zeros(n)
+        self.ev_timer = np.zeros(n)
+        self.ev_dir = np.zeros(n)
+        self.ev_mag = np.zeros(n)
+        self.ev_type = np.zeros(n)      # 0 打滑  1 爆胎
+        self.v = np.zeros(n)
 
     def _init(self, idx):
         k = len(idx)
         self.s[idx] = 0.0
         self.d[idx] = self.rng.uniform(-0.4, 0.4, size=k)
+        self.d_prev[idx] = self.d[idx]
         self.psi[idx] = self.rng.uniform(-0.05, 0.05, size=k)
-        self.v[idx] = 6.0
+        self.v[idx] = V_START_CAR
         self.steer[idx] = 0.0
-        self.d_timer[idx] = 0.0
-        self.d_dir[idx] = 0.0
-        self.d_mag[idx] = 0.0
-        self.v_prev[idx] = 6.0
+        self.ev_timer[idx] = 0.0
+        self.ev_dir[idx] = 0.0
+        self.ev_mag[idx] = 0.0
+        self.ev_type[idx] = 0.0
         self.done[idx] = False
         self.steps[idx] = 0
 
@@ -325,12 +301,15 @@ class CarEnv(BaseEnv):
         if len(idx):
             self._init(idx)
 
+    def _cruise(self):
+        return np.minimum(V_START_CAR + V_RAMP * self.s, V_MAX_CAR)
+
     def obs(self):
         k0 = track_curvature(self.s) * KAPPA_SCALE
         k1 = track_curvature(self.s + LOOKAHEAD[1]) * KAPPA_SCALE
         k2 = track_curvature(self.s + LOOKAHEAD[2]) * KAPPA_SCALE
         k3 = track_curvature(self.s + LOOKAHEAD[3]) * KAPPA_SCALE
-        active = (self.d_timer > 0).astype(np.float64)
+        active = (self.ev_timer > 0).astype(np.float64)
         return np.stack([
             self.d / ROAD_HALF,
             np.sin(self.psi),
@@ -339,45 +318,68 @@ class CarEnv(BaseEnv):
             self.steer / STEER_MAX,
             k0, k1, k2, k3,
             active,
-            self.d_dir * self.d_mag * active,
+            self.ev_dir * self.ev_mag * active,
+            self.ev_type,
             self.v * np.sin(self.psi) / V_MAX_CAR,
-            np.abs(self.d) / ROAD_HALF,
-            (self.v - self.v_prev) / V_MAX_CAR,
+            (self.d - self.d_prev) / D_DIFF_SCALE,
         ], axis=1).astype(np.float32)
 
     def step(self, actions):
         a = np.asarray(actions, dtype=np.int64)
-        # 转向输入 + 自动回中
-        steer_in = np.where(a == 0, -STEER_RATE, np.where(a == 1, STEER_RATE, 0.0))
+        hard = (a >= 2).astype(np.float64)
+        steer_in = np.where((a == 0) | (a == 2), -STEER_RATE * np.where(hard > 0, STEER_HARD, 1.0),
+                            np.where((a == 1) | (a == 3), STEER_RATE * np.where(hard > 0, STEER_HARD, 1.0), 0.0))
+        # 转向积分 + 自动回中
         self.steer = np.clip(
             self.steer + (steer_in - STEER_RETURN * self.steer * (steer_in == 0)) * DT * SUBSTEPS,
             -STEER_MAX, STEER_MAX)
 
-        # 失控事件
-        idle = self.d_timer <= 0
-        fire = idle & (self._roll((self.n,)) < DISTURB_P)
-        self.d_timer = np.where(fire, self.rng.uniform(DISTURB_T_MIN, DISTURB_T_MAX, size=self.n), self.d_timer)
-        self.d_dir = np.where(fire, self.rng.choice([-1.0, 1.0], size=self.n), self.d_dir)
-        self.d_mag = np.where(fire, self.rng.uniform(0.5, 1.0, size=self.n), self.d_mag)
-        active = self.d_timer > 0
-        self.d_timer = np.maximum(self.d_timer - DT * SUBSTEPS, 0.0)
+        # 随机事件（打滑 / 爆胎）。随机数消耗顺序与 JS 端一致：
+        # r1 触发, r2 时长, r3 方向, r4 强度, r5 类型
+        r1 = self._roll((self.n,))
+        idle = self.ev_timer <= 0
+        fire = idle & (r1 < SKID_P + BLOW_P)
+        r2 = self.rng.uniform(0.0, 1.0, size=self.n)
+        r3 = self.rng.choice([-1.0, 1.0], size=self.n)
+        r4 = self.rng.uniform(0.0, 1.0, size=self.n)
+        r5 = self.rng.uniform(0.0, 1.0, size=self.n)
+        is_blow = r5 < BLOW_P / (SKID_P + BLOW_P)
+        self.ev_timer = np.where(fire,
+                                 np.where(is_blow,
+                                          BLOW_T_MIN + r2 * (BLOW_T_MAX - BLOW_T_MIN),
+                                          SKID_T_MIN + r2 * (SKID_T_MAX - SKID_T_MIN)),
+                                 self.ev_timer)
+        self.ev_dir = np.where(fire, r3, self.ev_dir)
+        self.ev_mag = np.where(fire,
+                               np.where(is_blow, 0.7 + r4 * 0.3, 0.4 + r4 * 0.6),
+                               self.ev_mag)
+        self.ev_type = np.where(fire, is_blow.astype(np.float64), self.ev_type)
+        active = self.ev_timer > 0
+        self.ev_timer = np.maximum(self.ev_timer - DT * SUBSTEPS, 0.0)
+
+        ev_rate = np.where(self.ev_type > 0, BLOW_RATE, SKID_RATE)
+        ev_lat = np.where(self.ev_type > 0, BLOW_LAT, SKID_LAT)
+        ev_grip = np.where(self.ev_type > 0, BLOW_GRIP, SKID_GRIP)
+
+        v_blow = np.where(fire & (self.ev_type > 0), BLOW_VDROP, 1.0)
+        self.v = self.v * v_blow
 
         s0 = self.s.copy()
-        self.v_prev = self.v.copy()
+        self.d_prev = self.d.copy()
         for _ in range(SUBSTEPS):
             kap = track_curvature(self.s)
-            accel = np.where(a == 2, ACC, np.where(a == 3, -BRAKE_FORCE, 0.0))
-            self.v = np.clip(self.v + (accel - CAR_DRAG * self.v) * DT, 0.0, V_MAX_CAR)
-            yaw = self.v * np.tan(self.steer) / WHEELBASE - self.v * kap
-            yaw = yaw + np.where(active, self.d_dir * self.d_mag * D_RATE, 0.0)
+            cruise = self._cruise()
+            self.v = np.clip(self.v + (cruise - self.v) * K_RELAX * DT, 0.0, V_MAX_CAR)
+            authority = np.where(active, ev_grip, 1.0)
+            yaw = self.v * np.tan(self.steer) * authority / WHEELBASE - self.v * kap
+            yaw = yaw + np.where(active, self.ev_dir * self.ev_mag * ev_rate, 0.0)
             self.psi += yaw * DT
             self.psi = np.clip(self.psi, -1.2, 1.2)
             self.d += (self.v * np.sin(self.psi)
-                       + np.where(active, self.d_dir * self.d_mag * D_LAT, 0.0)) * DT
+                       + np.where(active, self.ev_dir * self.ev_mag * ev_lat, 0.0)) * DT
             self.s += self.v * np.cos(self.psi) * DT
 
         offroad = np.abs(self.d) > ROAD_HALF
-        stall = self.v < V_STALL
         self.steps += 1
         timeout = self.steps >= MAX_STEPS
 
@@ -385,7 +387,7 @@ class CarEnv(BaseEnv):
         reward = np.where(offroad, reward - CRASH_PENALTY, reward)
 
         prev_done = self.done.copy()
-        self.done = offroad | stall | timeout
+        self.done = offroad | timeout
         reward = np.where(prev_done, 0.0, reward)
         info = {"x": self.s.copy(), "fallen": offroad, "timeout": timeout}
         return self.obs(), reward.astype(np.float32), self.done.copy(), info
@@ -397,28 +399,27 @@ def make_env(task_id, n, seed=None):
 
 # ================================================================= 启发式基线
 def runner_heuristic(env):
-    """抬起更靠后那条支撑腿（换步），姿态越界时优先修正姿态。"""
-    n = env.n
-    hip_x = env.x + HIP_OFF * np.sin(env.th)
-    hip_y = env.y - HIP_OFF * np.cos(env.th)
-    # 必须两腿同时着地才换步，保证任何时刻至少一条腿支撑
-    both = env.stance[:, 0] & env.stance[:, 1]
-    behind_l = both & (env.fx[:, 0] < env.fx[:, 1])
-    behind_r = both & (env.fx[:, 1] <= env.fx[:, 0])
-    act = np.where(behind_l, 0, np.where(behind_r, 1, 2))
-    act = np.where(env.th > 0.15, 2, act)     # 后仰过度 -> 前倾
-    act = np.where(env.th < -0.35, 3, act)    # 前倾过度 -> 后仰
-    return act.astype(np.int64)
+    """倒立摆 PD 平衡：u = KP*th + KD*w > 0 表示正在向后倒，
+    需要前倾力矩（负）纠正；误差越大档位越硬。"""
+    u = 2.2 * env.th + 0.9 * env.w
+    act = np.zeros(env.n, dtype=np.int64)
+    act = np.where(u > 0.05, 1, act)          # 后仰 -> 前倾(软)
+    act = np.where(u > 0.30, 3, act)          # 严重   -> 前倾(硬)
+    act = np.where(u < -0.05, 0, act)         # 前倾 -> 后倾(软)
+    act = np.where(u < -0.30, 2, act)         # 严重 -> 后倾(硬)
+    return act
 
 
 def car_heuristic(env):
-    """车道保持：按横向偏移 + 航向角 + 前瞻曲率反打方向盘"""
-    n = env.n
+    """车道保持：偏移 + 航向 + 前瞻曲率反打方向，事件期间提前修正。"""
     kap = track_curvature(env.s + 14.0)
+    active = env.ev_timer > 0
     target_psi = -0.20 * (env.d / ROAD_HALF) + 0.9 * WHEELBASE * kap
-    err = env.psi - target_psi
-    act = np.where(err > 0.015, 0, np.where(err < -0.015, 1, 2))
-    act = np.where(env.v > 16.0, 3, act)
+    # 事件把航向往 dir 方向拽，提前向反方向多打一点（dir>0 推高 psi -> 更需要左转）
+    err = env.psi - target_psi + 0.10 * np.where(active, env.ev_dir * env.ev_mag, 0.0)
+    act = np.where(err > 0.015, 0, np.where(err < -0.015, 1, 0))
+    act = np.where(err > 0.10, 2, act)
+    act = np.where(err < -0.10, 3, act)
     return act.astype(np.int64)
 
 

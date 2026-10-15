@@ -53,8 +53,8 @@ class Game {
     if (this.env.x > this.best) this.best = this.env.x;
     if (out.done) {
       this.finished = true;
-      this.finishInfo = out.fell ? (this.taskId === 0 ? '摔倒' : '冲出路面')
-                                 : '跑完全程';
+      this.finishInfo = out.fell ? (this.taskId === 0 ? '失去平衡摔倒' : '冲出路面')
+                                 : '回合结束';
       setTimeout(() => this.reset(), 1200);
     }
     return gate;
@@ -114,6 +114,7 @@ async function main() {
   let mode = 0;
   let speed = 1;
   let paused = false;
+  let shiftDown = false;
   const keys = new Set();
 
   function applyMode() {
@@ -152,18 +153,22 @@ async function main() {
   });
 
   window.addEventListener('keydown', (e) => {
+    if (e.key === 'Shift') shiftDown = true;
     if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
       keys.add(e.key);
       e.preventDefault();
     }
   });
-  window.addEventListener('keyup', (e) => keys.delete(e.key));
+  window.addEventListener('keyup', (e) => {
+    if (e.key === 'Shift') shiftDown = false;
+    keys.delete(e.key);
+  });
 
+  // v2：← → 为软档（机器人后倾/前倾，汽车左转/右转），Shift+← → 为硬档
   function humanAction() {
-    if (keys.has('ArrowLeft')) return 0;
-    if (keys.has('ArrowRight')) return 1;
-    if (keys.has('ArrowUp')) return 2;
-    if (keys.has('ArrowDown')) return 3;
+    const hard = shiftDown ? 2 : 0;
+    if (keys.has('ArrowLeft')) return 0 + hard;
+    if (keys.has('ArrowRight')) return 1 + hard;
     return -1;
   }
 
@@ -208,7 +213,10 @@ function updateHud(g, tag) {
   el(`best-${tag}`).textContent = g.best.toFixed(1) + ' m';
   const st = el(`state-${tag}`);
   if (g.finished) { st.textContent = g.finishInfo; st.className = 'state bad'; }
-  else if (g.taskId === 1 && e.dTimer > 0) { st.textContent = '轮子失控！'; st.className = 'state warn'; }
+  else if (g.taskId === 1 && e.evTimer > 0) {
+    st.textContent = e.evType > 0 ? '爆胎！' : '打滑！';
+    st.className = 'state warn';
+  }
   else if (g.taskId === 0 && Math.abs(e.th) > 0.6) { st.textContent = '快摔了'; st.className = 'state warn'; }
   else { st.textContent = '进行中'; st.className = 'state ok'; }
   el(`act-${tag}`).textContent = g.lastAction >= 0 ? ACTION_NAMES[g.taskId][g.lastAction] : '—';
@@ -264,8 +272,8 @@ function renderStatic() {
       </tr>`;
   }
 
-  renderCurve('curve-runner', m.history.runner, '#64ffda', '机器人赛跑（米）');
-  renderCurve('curve-car', m.history.car, '#ffb454', '汽车驾驶（米）');
+  renderCurve('curve-runner', m.history.runner, '#64ffda', '独轮平衡 · 机器人距离（米）');
+  renderCurve('curve-car', m.history.car, '#ffb454', '无限公路 · 汽车里程（米）');
 }
 
 function renderCurve(id, data, color, label) {

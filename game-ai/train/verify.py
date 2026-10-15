@@ -10,7 +10,7 @@ import os
 import numpy as np
 import torch
 
-from env import RunnerEnv, CarEnv, MAX_STEPS
+from env import RunnerEnv, CarEnv, MAX_STEPS, runner_heuristic, car_heuristic
 from model import MoEPolicy
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -45,19 +45,13 @@ def gen_forward_cases(n=12):
 
 
 def step_only(env):
-    both = env.stance[:, 0] & env.stance[:, 1]
-    sl = both & (env.fx[:, 0] < env.fx[:, 1])
-    sr = both & (env.fx[:, 1] <= env.fx[:, 0])
-    return np.where(sl, 0, np.where(sr, 1, 2)).astype(np.int64)
+    """已废弃旧版双腿启发式，保留占位避免误用。"""
+    raise NotImplementedError("v2 环境无腿，请使用 env.runner_heuristic")
 
 
 def car_keep(env):
-    from env import track_curvature, WHEELBASE, ROAD_HALF
-    kap = track_curvature(env.s + 14.0)
-    target = -0.20 * (env.d / ROAD_HALF) + 0.9 * WHEELBASE * kap
-    err = env.psi - target
-    act = np.where(err > 0.015, 0, np.where(err < -0.015, 1, 2))
-    return np.where(env.v > 16.0, 3, act).astype(np.int64)
+    """已废弃，保留占位避免误用。"""
+    raise NotImplementedError("请使用 env.car_heuristic")
 
 
 def run(env_cls, pol, n=16, seed=1):
@@ -78,9 +72,9 @@ def run(env_cls, pol, n=16, seed=1):
 
 if __name__ == "__main__":
     gen_forward_cases()
-    d = run(RunnerEnv, step_only)
-    print("runner alternating-step  mean %.2f  std %.2f  min %.2f  max %.2f"
+    d = run(RunnerEnv, runner_heuristic)
+    print("runner balance           mean %.2f  std %.2f  min %.2f  max %.2f"
           % (d.mean(), d.std(), d.min(), d.max()))
-    d2 = run(CarEnv, car_keep)
+    d2 = run(CarEnv, car_heuristic)
     print("car lane-keeping         mean %.2f  std %.2f  min %.2f  max %.2f"
           % (d2.mean(), d2.std(), d2.min(), d2.max()))

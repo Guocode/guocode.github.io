@@ -36,7 +36,8 @@ function thickLine(ctx, x0, y0, x1, y1, w, color) {
   ctx.stroke();
 }
 
-/* ------------------------------------------------------------ Game 0 机器人赛跑 */
+/* ------------------------------------------------------------ Game 0 独轮平衡机器人 */
+const RW = 0.18;                      // 轮半径 (m)
 export function drawRunner(ctx, env, W, H, t = 0) {
   const S = 62;                       // px per meter
   const camX = env.x - 1.1;
@@ -85,33 +86,40 @@ export function drawRunner(ctx, env, W, H, t = 0) {
     fill(ctx, mx, gy - 20, 12, 5, (m % 50 === 0) ? PAL.warn : PAL.dim);
   }
 
-  // 机器人
-  const comX = sx(env.x), comY = sy(env.y);
-  const hipX = comX + Math.sin(env.th) * 0.22 * S;
-  const hipY = comY + Math.cos(env.th) * 0.22 * S;
+  // 机器人：驱动轮 + 躯干（倒立摆，无腿）
+  const wheelX = sx(env.x), wheelY = sy(RW);
+  const spin = env.x / RW;                    // 轮子转角（前进驱动）
 
-  // 腿（先画后腿再画前腿）
-  for (let i = 0; i < 2; i++) {
-    const footX = sx(env.fx[i]), footY = sy(env.fy[i]);
-    const col = i === 0 ? PAL.runnerDark : PAL.runner;
-    thickLine(ctx, hipX, hipY, footX, footY, 3, col);
-    // 脚
-    fill(ctx, footX - 3, footY - 1, 7, 3, i === 0 ? PAL.runnerDark : PAL.runnerHi);
-    if (!env.stance[i]) fill(ctx, footX - 2, footY + 2, 5, 1, PAL.dim);  // 抬腿影子
+  // 独轮（像素圆：外圈 + 辐条随前进旋转）
+  ctx.fillStyle = PAL.runnerDark;
+  ctx.beginPath();
+  ctx.arc(wheelX, wheelY, RW * S, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = PAL.sky;                    // 轮辋内侧
+  ctx.beginPath();
+  ctx.arc(wheelX, wheelY, RW * S - 3, 0, Math.PI * 2);
+  ctx.fill();
+  // 辐条（随里程旋转，体现"一直在前进"）
+  for (let k = 0; k < 3; k++) {
+    const ang = spin + (k * Math.PI * 2) / 3;
+    thickLine(ctx, wheelX, wheelY,
+              wheelX + Math.cos(ang) * (RW * S - 4), wheelY + Math.sin(ang) * (RW * S - 4),
+              2, PAL.runnerDark);
   }
+  fill(ctx, wheelX - 2, wheelY - 2, 4, 4, PAL.runnerHi);   // 轮毂
 
-  // 躯干（随俯仰旋转）
+  // 躯干（随俯仰旋转，立在轮轴上）
   ctx.save();
-  ctx.translate(hipX, hipY);
+  ctx.translate(wheelX, wheelY);
   ctx.rotate(-env.th);
-  fill(ctx, -3, -26, 7, 26, PAL.runner);          // 躯干
-  fill(ctx, -3, -26, 7, 4, PAL.runnerHi);
-  fill(ctx, -4, -34, 9, 8, PAL.runnerHi);         // 头
-  fill(ctx, -1, -32, 2, 2, PAL.sky);              // 眼
-  // 手臂
+  fill(ctx, -3, -24, 7, 22, PAL.runner);          // 躯干
+  fill(ctx, -3, -24, 7, 4, PAL.runnerHi);
+  fill(ctx, -4, -32, 9, 8, PAL.runnerHi);         // 头
+  fill(ctx, -1, -30, 2, 2, PAL.sky);              // 眼
+  // 手臂：倾斜方向反向摆动，像在找平衡
   const swing = Math.sin(t * 0.02) * 4;
-  fill(ctx, 3, -22, 6, 2, PAL.runnerDark);
-  fill(ctx, -8, -22 + swing, 6, 2, PAL.runnerDark);
+  fill(ctx, 3, -20, 6, 2, PAL.runnerDark);
+  fill(ctx, -8, -20 + swing, 6, 2, PAL.runnerDark);
   ctx.restore();
 
   // 摔倒提示
@@ -173,19 +181,21 @@ export function drawCar(ctx, env, W, H, t = 0) {
     prev = { cx, y, halfW };
   }
 
-  // 失控指示：画面边缘红色脉冲
-  const active = env.dTimer > 0;
+  // 事件指示：打滑（黄色脉冲）/ 爆胎（红色脉冲 + 更强）
+  const active = env.evTimer > 0;
+  const isBlow = env.evType > 0;
   if (active) {
-    const a = 0.10 + 0.10 * Math.sin(t * 0.5);
-    ctx.fillStyle = `rgba(255,107,107,${a})`;
+    const a = (isBlow ? 0.14 : 0.09) + 0.10 * Math.sin(t * 0.5);
+    ctx.fillStyle = isBlow ? `rgba(255,107,107,${a})` : `rgba(255,209,102,${a})`;
     ctx.fillRect(0, 0, W, H);
   }
 
   // 车（第三人称后视）
   const carY = H - 30;
-  const shake = active ? Math.round(Math.sin(t * 0.9) * 2) : 0;
+  const shakeAmp = isBlow ? 3 : 2;
+  const shake = active ? Math.round(Math.sin(t * (isBlow ? 1.3 : 0.9)) * shakeAmp) : 0;
   const carX = W / 2 - env.d * (FOCAL / (2.5 * DZ)) * 0.55 + shake;
-  const tilt = env.steer * 0.25 + (active ? env.dDir * 0.10 : 0);
+  const tilt = env.steer * 0.25 + (active ? env.evDir * (isBlow ? 0.14 : 0.10) : 0);
   ctx.save();
   ctx.translate(carX, carY);
   ctx.rotate(tilt);
@@ -196,14 +206,19 @@ export function drawCar(ctx, env, W, H, t = 0) {
   fill(ctx, 9, 2, 6, 6, PAL.carDark);             // 右轮
   fill(ctx, -13, -4, 4, 3, PAL.danger);           // 尾灯
   fill(ctx, 9, -4, 4, 3, PAL.danger);
+  if (isBlow) fill(ctx, -15, 2, 6, 6, PAL.sky);   // 爆胎：左前轮瘪了（黑圈）
   ctx.restore();
 
-  // 失控时冒烟粒子
+  // 事件粒子：打滑 = 白色胎烟（贴地喷），爆胎 = 深色碎屑上抛
   if (active) {
-    for (let i = 0; i < 5; i++) {
+    const col = isBlow ? (i) => `rgba(255,107,107,${0.55 - i * 0.09})`
+                       : (i) => `rgba(223,230,255,${0.45 - i * 0.07})`;
+    for (let i = 0; i < 6; i++) {
       const px = carX + (i % 2 ? 12 : -16) + Math.sin(t * 0.3 + i) * 3;
-      const py = carY + 4 - ((t * 0.4 + i * 9) % 26);
-      fill(ctx, px, py, 3, 3, `rgba(143,154,196,${0.5 - i * 0.08})`);
+      const py = isBlow
+        ? carY + 4 - ((t * 0.5 + i * 9) % 26)
+        : carY + 5 - ((t * 0.35 + i * 7) % 12);
+      fill(ctx, px, py, 3, 3, col(i));
     }
   }
   return { HORIZON };

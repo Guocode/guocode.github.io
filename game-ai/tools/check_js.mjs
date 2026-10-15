@@ -5,30 +5,39 @@
  */
 
 import fs from 'node:fs';
-import { RunnerEnv, CarEnv, MAX_STEPS, trackCurvature } from '../assets/js/env.js';
+import { RunnerEnv, CarEnv, trackCurvature } from '../assets/js/env.js';
 import { MoEPolicy } from '../assets/js/moe.js';
 
-const ROAD_HALF = 3.4, WHEELBASE = 2.6;
+const CAP = 3600;   // 与 Python 端 MAX_STEPS 一致（60 s 上限）
 
-function stepOnly(e) {
-  const both = e.stance[0] && e.stance[1];
-  if (both) return e.fx[0] < e.fx[1] ? 0 : 1;
-  return 2;
+// 与 train/env.py 的启发式一致：倒立摆 PD 平衡
+function runnerBalance(e) {
+  const u = 2.2 * e.th + 0.9 * e.w;
+  if (u > 0.30) return 3;
+  if (u > 0.05) return 1;
+  if (u < -0.30) return 2;
+  if (u < -0.05) return 0;
+  return 0;
 }
+
+// 与 train/env.py 的启发式一致：车道保持 + 事件预修正
 function carKeep(e) {
   const kap = trackCurvature(e.s + 14.0);
-  const target = -0.20 * (e.d / ROAD_HALF) + 0.9 * WHEELBASE * kap;
-  const err = e.psi - target;
-  let a = err > 0.015 ? 0 : err < -0.015 ? 1 : 2;
-  if (e.v > 16.0) a = 3;
-  return a;
+  const active = e.evTimer > 0;
+  const target = -0.20 * (e.d / 3.4) + 0.9 * 2.6 * kap;
+  const err = e.psi - target + 0.10 * (active ? e.evDir * e.evMag : 0.0);
+  if (err > 0.10) return 2;
+  if (err > 0.015) return 0;
+  if (err < -0.10) return 3;
+  if (err < -0.015) return 1;
+  return 0;
 }
 
 function run(cls, pol, seeds) {
   const dist = [];
   for (const sd of seeds) {
     const e = new cls(sd);
-    for (let s = 0; s < MAX_STEPS; s++) {
+    for (let s = 0; s < CAP; s++) {
       if (e.step(pol(e)).done) break;
     }
     dist.push(cls === RunnerEnv ? e.x : e.s);
@@ -39,13 +48,13 @@ function run(cls, pol, seeds) {
 }
 
 const seeds = Array.from({ length: 16 }, (_, i) => i + 1);
-const r = run(RunnerEnv, stepOnly, seeds);
+const r = run(RunnerEnv, runnerBalance, seeds);
 const c = run(CarEnv, carKeep, seeds);
-console.log('runner alt-step   mean %s  std %s  [%s, %s]',
+console.log('runner balance    mean %s  std %s  [%s, %s]',
   r.mean.toFixed(2), r.std.toFixed(2), r.min.toFixed(2), r.max.toFixed(2));
 console.log('car lane-keeping  mean %s  std %s  [%s, %s]',
   c.mean.toFixed(2), c.std.toFixed(2), c.min.toFixed(2), c.max.toFixed(2));
-console.log('  (python ref: runner 78.75±0.03 | car 134.88±66.34)');
+console.log('  (python ref: runner 274.40±0.00 | car 300.56±194.73)');
 
 // ---------------- MoE 前向一致性 ----------------
 const w = JSON.parse(fs.readFileSync('assets/models/moe_weights.json', 'utf8'));

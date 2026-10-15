@@ -96,8 +96,8 @@ def compute_gae(b, gamma, lam):
 
 
 def collect_demo(env_cls, task_id, policy_fn, n_samples, seed, n_env=64):
-    """用启发式策略采集示范数据。交替迈腿这类组合动作靠随机探索很难发现，
-    先用行为克隆把策略带到"会跑"的水平，再交给 PPO 微调。"""
+    """用启发式策略采集示范数据。倒立摆的连续平衡微调与车道保持
+    靠随机探索很难起步，先用行为克隆把策略带到"能玩"的水平，再交给 PPO 微调。"""
     env = env_cls(n=n_env, seed=seed)
     env.reset(seed=seed)
     obs_list, act_list = [], []
@@ -276,7 +276,7 @@ def main():
             print("[%4d/%d] loss %7.3f | runner %6.2f m (fail %.0f%%) | car %7.1f m (fail %.0f%%) | %.0fs"
                   % (upd, args.updates, hist["loss"][-1], r["mean"], r["fail"] * 100,
                      c["mean"], c["fail"] * 100, time.time() - t0))
-            score = r["mean"] / 80.0 + c["mean"] / 200.0
+            score = r["mean"] / 150.0 + c["mean"] / 400.0
             if score > best:
                 best = score
                 torch.save(policy.state_dict(), os.path.join(args.out, args.arch + ".pt"))
